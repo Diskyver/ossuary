@@ -5,15 +5,14 @@
 // Establishes a non-authenticated session between a client and server over a
 // TCP connection, and exchanges encrypted messages.
 //
-use ossuary::{OssuaryConnection, ConnectionType};
 use ossuary::OssuaryError;
+use ossuary::{ConnectionType, OssuaryConnection};
 
-use std::thread;
 use std::net::{TcpListener, TcpStream};
+use std::thread;
 
-fn event_loop(mut conn: OssuaryConnection,
-              mut stream: TcpStream) -> Result<(), std::io::Error> {
-    let mut strings = vec!("message3", "message2", "message1");
+fn event_loop(mut conn: OssuaryConnection, mut stream: TcpStream) -> Result<(), std::io::Error> {
+    let mut strings = vec!["message3", "message2", "message1"];
     let mut plaintext = Vec::<u8>::new();
     let start = std::time::Instant::now();
     let name = match conn.is_server() {
@@ -28,22 +27,25 @@ fn event_loop(mut conn: OssuaryConnection,
             Ok(false) => {
                 let _ = conn.send_handshake(&mut stream).unwrap(); // you should check errors
                 let _ = conn.recv_handshake(&mut stream);
-            },
+            }
             // Transmitting on encrypted connection
             Ok(true) => {
                 if let Some(plaintext) = strings.pop() {
                     let _ = conn.send_data(plaintext.as_bytes(), &mut stream);
                 }
-                if let Ok(_) =  conn.recv_data(&mut stream, &mut plaintext) {
-                    println!("({}) received: {:?}", name,
-                             String::from_utf8(plaintext.clone()).unwrap());
+                if let Ok(_) = conn.recv_data(&mut stream, &mut plaintext) {
+                    println!(
+                        "({}) received: {:?}",
+                        name,
+                        String::from_utf8(plaintext.clone()).unwrap()
+                    );
                     plaintext.clear();
                 }
                 // Client issues a disconnect when finished
                 if strings.is_empty() && !conn.is_server() {
                     conn.disconnect(false);
                 }
-            },
+            }
             // Trust-On-First-Use
             Err(OssuaryError::UntrustedServer(pubkey)) => {
                 let keys: Vec<&[u8]> = vec![&pubkey];
@@ -52,7 +54,7 @@ fn event_loop(mut conn: OssuaryConnection,
             Err(OssuaryError::ConnectionClosed) => {
                 println!("({}) Finished succesfully", name);
                 break;
-            },
+            }
             // Uh-oh.
             Err(e) => panic!("({}) Handshake failed with error: {:?}", name, e),
         }
@@ -80,9 +82,13 @@ fn client() -> Result<(), std::io::Error> {
 }
 
 fn main() {
-    let server = thread::spawn(move || { let _ = server(); });
+    let server = thread::spawn(move || {
+        let _ = server();
+    });
     std::thread::sleep(std::time::Duration::from_millis(500));
-    let child = thread::spawn(move || { let _ = client(); });
+    let child = thread::spawn(move || {
+        let _ = client();
+    });
     let _ = child.join();
     let _ = server.join();
 }

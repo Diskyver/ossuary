@@ -23,12 +23,16 @@ use std::io::Write;
 const CLIENT_HANDSHAKE_PACKET_LEN: usize = CHALLENGE_LEN + NONCE_LEN + KEY_LEN + 8;
 const CLIENT_AUTH_PACKET_LEN: usize = CLIENT_AUTH_SUBPACKET_LEN + 8;
 const SERVER_HANDSHAKE_PACKET_LEN: usize = NONCE_LEN + KEY_LEN + SERVER_HANDSHAKE_SUBPACKET_LEN + 8;
-const SERVER_HANDSHAKE_SUBPACKET_LEN: usize = ::std::mem::size_of::<ServerEncryptedHandshakePacket>() +
-    ::std::mem::size_of::<EncryptedPacket>() + TAG_LEN;
-const CLIENT_AUTH_SUBPACKET_LEN: usize = ::std::mem::size_of::<ClientEncryptedAuthenticationPacket>() +
-    ::std::mem::size_of::<EncryptedPacket>() + TAG_LEN;
+const SERVER_HANDSHAKE_SUBPACKET_LEN: usize =
+    ::std::mem::size_of::<ServerEncryptedHandshakePacket>()
+        + ::std::mem::size_of::<EncryptedPacket>()
+        + TAG_LEN;
+const CLIENT_AUTH_SUBPACKET_LEN: usize =
+    ::std::mem::size_of::<ClientEncryptedAuthenticationPacket>()
+        + ::std::mem::size_of::<EncryptedPacket>()
+        + TAG_LEN;
 
-#[repr(C,packed)]
+#[repr(C, packed)]
 pub(crate) struct ResetPacket {
     len: u16,
     pub(crate) error: bool,
@@ -53,7 +57,7 @@ impl ResetPacket {
     }
 }
 
-#[repr(C,packed)]
+#[repr(C, packed)]
 struct ClientHandshakePacket {
     len: u16,
     version: u8,
@@ -87,19 +91,24 @@ impl ClientHandshakePacket {
         match hs_pkt {
             Ok(pkt) => {
                 if pkt.version != PROTOCOL_VERSION {
-                    return Err(OssuaryError::WrongProtocolVersion(pkt.version, PROTOCOL_VERSION));
+                    return Err(OssuaryError::WrongProtocolVersion(
+                        pkt.version,
+                        PROTOCOL_VERSION,
+                    ));
                 }
                 if pkt.len as usize != CLIENT_HANDSHAKE_PACKET_LEN {
-                    return Err(OssuaryError::InvalidPacket("Unexpected packet size.".into()));
+                    return Err(OssuaryError::InvalidPacket(
+                        "Unexpected packet size.".into(),
+                    ));
                 }
-            },
-            _ => {},
+            }
+            _ => {}
         }
         hs_pkt
     }
 }
 
-#[repr(C,packed)]
+#[repr(C, packed)]
 struct ServerEncryptedHandshakePacket {
     public_key: [u8; KEY_LEN],
     challenge: [u8; CHALLENGE_LEN],
@@ -121,7 +130,7 @@ impl ServerEncryptedHandshakePacket {
     }
 }
 
-#[repr(C,packed)]
+#[repr(C, packed)]
 struct ServerHandshakePacket {
     len: u16,
     version: u8,
@@ -143,8 +152,14 @@ impl Default for ServerHandshakePacket {
     }
 }
 impl ServerHandshakePacket {
-    fn new(session_pubkey: &[u8], nonce: &[u8], session_privkey: &[u8],
-           server_pubkey: &[u8], challenge: &[u8], signature: &[u8]) -> Result<ServerHandshakePacket, OssuaryError> {
+    fn new(
+        session_pubkey: &[u8],
+        nonce: &[u8],
+        session_privkey: &[u8],
+        server_pubkey: &[u8],
+        challenge: &[u8],
+        signature: &[u8],
+    ) -> Result<ServerHandshakePacket, OssuaryError> {
         let mut pkt: ServerHandshakePacket = Default::default();
         let mut enc_pkt: ServerEncryptedHandshakePacket = Default::default();
         pkt.public_key.copy_from_slice(session_pubkey);
@@ -152,7 +167,12 @@ impl ServerHandshakePacket {
         enc_pkt.public_key.copy_from_slice(server_pubkey);
         enc_pkt.challenge.copy_from_slice(challenge);
         enc_pkt.signature.copy_from_slice(signature);
-        encrypt_to_bytes(session_privkey, nonce, struct_as_slice(&enc_pkt), &mut pkt.subpacket)?;
+        encrypt_to_bytes(
+            session_privkey,
+            nonce,
+            struct_as_slice(&enc_pkt),
+            &mut pkt.subpacket,
+        )?;
         Ok(pkt)
     }
     fn from_packet(pkt: &NetworkPacket) -> Result<&ServerHandshakePacket, OssuaryError> {
@@ -160,19 +180,24 @@ impl ServerHandshakePacket {
         match hs_pkt {
             Ok(pkt) => {
                 if pkt.version != PROTOCOL_VERSION {
-                    return Err(OssuaryError::WrongProtocolVersion(pkt.version, PROTOCOL_VERSION));
+                    return Err(OssuaryError::WrongProtocolVersion(
+                        pkt.version,
+                        PROTOCOL_VERSION,
+                    ));
                 }
                 if pkt.len as usize != SERVER_HANDSHAKE_PACKET_LEN {
-                    return Err(OssuaryError::InvalidPacket("Unexpected packet size.".into()));
+                    return Err(OssuaryError::InvalidPacket(
+                        "Unexpected packet size.".into(),
+                    ));
                 }
-            },
-            _ => {},
+            }
+            _ => {}
         }
         hs_pkt
     }
 }
 
-#[repr(C,packed)]
+#[repr(C, packed)]
 struct ClientEncryptedAuthenticationPacket {
     public_key: [u8; KEY_LEN],
     signature: [u8; SIGNATURE_LEN],
@@ -192,7 +217,7 @@ impl ClientEncryptedAuthenticationPacket {
     }
 }
 
-#[repr(C,packed)]
+#[repr(C, packed)]
 struct ClientAuthenticationPacket {
     len: u16,
     version: u8,
@@ -210,13 +235,22 @@ impl Default for ClientAuthenticationPacket {
     }
 }
 impl ClientAuthenticationPacket {
-    fn new(nonce: &[u8], session_privkey: &[u8],
-           client_pubkey: &[u8], signature: &[u8]) -> Result<ClientAuthenticationPacket, OssuaryError> {
+    fn new(
+        nonce: &[u8],
+        session_privkey: &[u8],
+        client_pubkey: &[u8],
+        signature: &[u8],
+    ) -> Result<ClientAuthenticationPacket, OssuaryError> {
         let mut pkt: ClientAuthenticationPacket = Default::default();
         let mut enc_pkt: ClientEncryptedAuthenticationPacket = Default::default();
         enc_pkt.public_key.copy_from_slice(client_pubkey);
         enc_pkt.signature.copy_from_slice(signature);
-        encrypt_to_bytes(session_privkey, nonce, struct_as_slice(&enc_pkt), &mut pkt.subpacket)?;
+        encrypt_to_bytes(
+            session_privkey,
+            nonce,
+            struct_as_slice(&enc_pkt),
+            &mut pkt.subpacket,
+        )?;
         Ok(pkt)
     }
     fn from_packet(pkt: &NetworkPacket) -> Result<&ClientAuthenticationPacket, OssuaryError> {
@@ -224,13 +258,18 @@ impl ClientAuthenticationPacket {
         match hs_pkt {
             Ok(pkt) => {
                 if pkt.version != PROTOCOL_VERSION {
-                    return Err(OssuaryError::WrongProtocolVersion(pkt.version, PROTOCOL_VERSION));
+                    return Err(OssuaryError::WrongProtocolVersion(
+                        pkt.version,
+                        PROTOCOL_VERSION,
+                    ));
                 }
                 if pkt.len as usize != CLIENT_AUTH_PACKET_LEN {
-                    return Err(OssuaryError::InvalidPacket("Unexpected packet size.".into()));
+                    return Err(OssuaryError::InvalidPacket(
+                        "Unexpected packet size.".into(),
+                    ));
                 }
-            },
-            _ => {},
+            }
+            _ => {}
         }
         hs_pkt
     }
@@ -262,7 +301,7 @@ impl OssuaryConnection {
                     None => key.extend_from_slice(&[0; KEY_LEN]),
                 };
                 Err(OssuaryError::UntrustedServer(key))
-            },
+            }
             _ => Ok(false),
         }
     }
@@ -285,43 +324,45 @@ impl OssuaryConnection {
     /// Returns the number of bytes written into `buf`, or an error.  You must
     /// handle [`OssuaryError::WouldBlock`], which is a recoverable error, but
     /// indicates that some bytes were written to the buffer.
-    pub fn send_handshake<T,U>(&mut self, mut buf: T) -> Result<usize, OssuaryError>
-    where T: std::ops::DerefMut<Target = U>,
-          U: std::io::Write {
+    pub fn send_handshake<T, U>(&mut self, mut buf: T) -> Result<usize, OssuaryError>
+    where
+        T: std::ops::DerefMut<Target = U>,
+        U: std::io::Write,
+    {
         // Try to send any unsent buffered data
         match write_stored_packet(self, buf.deref_mut()) {
-            Ok(w) if w == 0 => {},
+            Ok(w) if w == 0 => {}
             Ok(w) => return Err(OssuaryError::WouldBlock(w)),
             Err(e) => return Err(e),
         }
 
         let result: Result<(usize, ConnectionState), OssuaryError> = match self.state {
             // No-op states
-            ConnectionState::Failed(_) |
-            ConnectionState::ResetWait |
-            ConnectionState::Encrypted |
-            ConnectionState::ClientRaiseUntrustedServer |
-            ConnectionState::ClientWaitServerApproval => {
+            ConnectionState::Failed(_)
+            | ConnectionState::ResetWait
+            | ConnectionState::Encrypted
+            | ConnectionState::ClientRaiseUntrustedServer
+            | ConnectionState::ClientWaitServerApproval => {
                 return Ok(0);
-            },
+            }
             // Timeout wait states
-            ConnectionState::ServerWaitHandshake(t) |
-            ConnectionState::ServerWaitAuthentication(t) |
-            ConnectionState::ClientWaitHandshake(t)  => {
+            ConnectionState::ServerWaitHandshake(t)
+            | ConnectionState::ServerWaitAuthentication(t)
+            | ConnectionState::ClientWaitHandshake(t) => {
                 // Wait for response, with timeout
                 self.check_timeout(t);
                 Ok((0, self.state.clone()))
-            },
+            }
             // Handshake transmission states
-            ConnectionState::ClientSendHandshake => { self.send_client_handshake(buf) },
-            ConnectionState::ServerSendHandshake => { self.send_server_handshake(buf) },
-            ConnectionState::ClientSendAuthentication => { self.send_client_authentication(buf) },
+            ConnectionState::ClientSendHandshake => self.send_client_handshake(buf),
+            ConnectionState::ServerSendHandshake => self.send_server_handshake(buf),
+            ConnectionState::ClientSendAuthentication => self.send_client_authentication(buf),
             // Error states
             ConnectionState::Failing(ref e) => {
                 let e = e.clone(); // cure borrow-checker woes
                 self.send_disconnect(e, buf)
-            },
-            ConnectionState::Resetting(initial) => { self.send_reset(initial, buf) }
+            }
+            ConnectionState::Resetting(initial) => self.send_reset(initial, buf),
         };
 
         match result {
@@ -332,18 +373,28 @@ impl OssuaryConnection {
             Err(e) => {
                 self.reset_state(None);
                 Err(e)
-            },
+            }
         }
     }
 
     /// Ready to send a reset packet
-    fn send_reset<T,U>(&mut self, initial: bool, mut buf: T) -> Result<(usize, ConnectionState), OssuaryError>
-    where T: std::ops::DerefMut<Target = U>,
-          U: std::io::Write {
+    fn send_reset<T, U>(
+        &mut self,
+        initial: bool,
+        mut buf: T,
+    ) -> Result<(usize, ConnectionState), OssuaryError>
+    where
+        T: std::ops::DerefMut<Target = U>,
+        U: std::io::Write,
+    {
         // Tell remote host to reset
         let pkt: ResetPacket = Default::default();
-        let w = write_packet(self, buf.deref_mut(), struct_as_slice(&pkt),
-                             PacketType::Reset)?;
+        let w = write_packet(
+            self,
+            buf.deref_mut(),
+            struct_as_slice(&pkt),
+            PacketType::Reset,
+        )?;
         self.local_msg_id = 0;
         let state = match initial {
             true => ConnectionState::ResetWait,
@@ -353,71 +404,119 @@ impl OssuaryConnection {
     }
 
     /// Ready to send a disconnect packet
-    fn send_disconnect<T,U>(&mut self, e: OssuaryError,
-                            mut buf: T) -> Result<(usize, ConnectionState), OssuaryError>
-    where T: std::ops::DerefMut<Target = U>,
-          U: std::io::Write {
+    fn send_disconnect<T, U>(
+        &mut self,
+        e: OssuaryError,
+        mut buf: T,
+    ) -> Result<(usize, ConnectionState), OssuaryError>
+    where
+        T: std::ops::DerefMut<Target = U>,
+        U: std::io::Write,
+    {
         // Tell remote host to disconnect
         let pkt: ResetPacket = match e {
             OssuaryError::ConnectionClosed => ResetPacket::closed(),
             _ => Default::default(),
         };
-        let w = write_packet(self, buf.deref_mut(), struct_as_slice(&pkt),
-                             PacketType::Disconnect)?;
+        let w = write_packet(
+            self,
+            buf.deref_mut(),
+            struct_as_slice(&pkt),
+            PacketType::Disconnect,
+        )?;
         Ok((w, ConnectionState::Failed(e)))
     }
 
     /// Ready to send a client handshake packet
-    fn send_client_handshake<T,U>(&mut self, mut buf: T) -> Result<(usize, ConnectionState), OssuaryError>
-    where T: std::ops::DerefMut<Target = U>,
-          U: std::io::Write {
+    fn send_client_handshake<T, U>(
+        &mut self,
+        mut buf: T,
+    ) -> Result<(usize, ConnectionState), OssuaryError>
+    where
+        T: std::ops::DerefMut<Target = U>,
+        U: std::io::Write,
+    {
         // Send session public key and nonce to initiate connection
         let chal = self.local_auth.challenge.unwrap_or([0u8; CHALLENGE_LEN]);
-        let pkt = ClientHandshakePacket::new(&self.local_key.public,
-                                             &self.local_key.nonce,
-                                             &chal);
-        let w = write_packet(self, buf.deref_mut(), struct_as_slice(&pkt),
-                             PacketType::ClientHandshake)?;
+        let pkt = ClientHandshakePacket::new(&self.local_key.public, &self.local_key.nonce, &chal);
+        let w = write_packet(
+            self,
+            buf.deref_mut(),
+            struct_as_slice(&pkt),
+            PacketType::ClientHandshake,
+        )?;
         let state = ConnectionState::ClientWaitHandshake(std::time::SystemTime::now());
         Ok((w, state))
     }
 
     /// Ready to send a server handshake packet
-    fn send_server_handshake<T,U>(&mut self, mut buf: T) -> Result<(usize, ConnectionState), OssuaryError>
-    where T: std::ops::DerefMut<Target = U>,
-          U: std::io::Write {
+    fn send_server_handshake<T, U>(
+        &mut self,
+        mut buf: T,
+    ) -> Result<(usize, ConnectionState), OssuaryError>
+    where
+        T: std::ops::DerefMut<Target = U>,
+        U: std::io::Write,
+    {
         let sig = self.sign_remote_challenge();
         // Get session encryption key, which must be known by now.
         let server_public = self.local_auth.public_key.unwrap_or_default();
-        let session = self.local_key.session.as_ref().map(|s| s.as_bytes()).unwrap_or(&[0u8; KEY_LEN]);
+        let session = self
+            .local_key
+            .session
+            .as_ref()
+            .map(|s| s.as_bytes())
+            .unwrap_or(&[0u8; KEY_LEN]);
         let chal = self.local_auth.challenge.unwrap_or([0u8; CHALLENGE_LEN]);
-        let pkt = ServerHandshakePacket::new(&self.local_key.public,
-                                             &self.local_key.nonce,
-                                             session,
-                                             server_public.as_bytes(),
-                                             &chal,
-                                             &sig)?;
-        let w = write_packet(self, buf.deref_mut(), struct_as_slice(&pkt),
-                             PacketType::ServerHandshake)?;
+        let pkt = ServerHandshakePacket::new(
+            &self.local_key.public,
+            &self.local_key.nonce,
+            session,
+            server_public.as_bytes(),
+            &chal,
+            &sig,
+        )?;
+        let w = write_packet(
+            self,
+            buf.deref_mut(),
+            struct_as_slice(&pkt),
+            PacketType::ServerHandshake,
+        )?;
         increment_nonce(&mut self.local_key.nonce);
         let state = ConnectionState::ServerWaitAuthentication(std::time::SystemTime::now());
         Ok((w, state))
     }
 
     /// Ready to send a client authentication packet
-    fn send_client_authentication<T,U>(&mut self, mut buf: T) -> Result<(usize, ConnectionState), OssuaryError>
-    where T: std::ops::DerefMut<Target = U>,
-          U: std::io::Write {
+    fn send_client_authentication<T, U>(
+        &mut self,
+        mut buf: T,
+    ) -> Result<(usize, ConnectionState), OssuaryError>
+    where
+        T: std::ops::DerefMut<Target = U>,
+        U: std::io::Write,
+    {
         let sig = self.sign_remote_challenge();
         // Get session encryption key, which must be known by now.
         let server_public = self.local_auth.public_key.unwrap_or_default();
-        let session = self.local_key.session.as_ref().map(|s| s.as_bytes()).unwrap_or(&[0u8; KEY_LEN]);
-        let pkt = ClientAuthenticationPacket::new(&self.local_key.nonce,
-                                                  session,
-                                                  server_public.as_bytes(),
-                                                  &sig)?;
-        let w = write_packet(self, buf.deref_mut(), struct_as_slice(&pkt),
-                             PacketType::ClientAuthentication)?;
+        let session = self
+            .local_key
+            .session
+            .as_ref()
+            .map(|s| s.as_bytes())
+            .unwrap_or(&[0u8; KEY_LEN]);
+        let pkt = ClientAuthenticationPacket::new(
+            &self.local_key.nonce,
+            session,
+            server_public.as_bytes(),
+            &sig,
+        )?;
+        let w = write_packet(
+            self,
+            buf.deref_mut(),
+            struct_as_slice(&pkt),
+            PacketType::ClientAuthentication,
+        )?;
         increment_nonce(&mut self.local_key.nonce);
         let state = ConnectionState::Encrypted;
         Ok((w, state))
@@ -439,26 +538,27 @@ impl OssuaryConnection {
     /// from the data buffer before it is used again.  You must handle
     /// [`OssuaryError::WouldBlock`], which is a recoverable error, but
     /// indicates that some bytes were also read from the buffer.
-    pub fn recv_handshake<T,U>(&mut self, buf: T) -> Result<usize, OssuaryError>
-    where T: std::ops::DerefMut<Target = U>,
-          U: std::io::Read {
+    pub fn recv_handshake<T, U>(&mut self, buf: T) -> Result<usize, OssuaryError>
+    where
+        T: std::ops::DerefMut<Target = U>,
+        U: std::io::Read,
+    {
         match self.state {
-            ConnectionState::Failed(_) |
-            ConnectionState::Encrypted => return Ok(0),
+            ConnectionState::Failed(_) | ConnectionState::Encrypted => return Ok(0),
             // Timeout wait states
-            ConnectionState::ServerWaitHandshake(t) |
-            ConnectionState::ServerWaitAuthentication(t) |
-            ConnectionState::ClientWaitHandshake(t)  => {
+            ConnectionState::ServerWaitHandshake(t)
+            | ConnectionState::ServerWaitAuthentication(t)
+            | ConnectionState::ClientWaitHandshake(t) => {
                 // Wait for response, with timeout
                 if self.check_timeout(t) {
                     return Ok(0);
                 }
-            },
-            _ => {},
+            }
+            _ => {}
         }
 
         let (pkt, bytes_read) = match read_packet(self, buf) {
-            Ok(t) => { t },
+            Ok(t) => t,
             Err(e @ OssuaryError::WouldBlock(_)) => {
                 return Err(e);
             }
@@ -469,63 +569,57 @@ impl OssuaryConnection {
         };
 
         match pkt.kind() {
-            PacketType::Reset => { self.handle_reset_packet(bytes_read)?; },
-            PacketType::Disconnect => { self.handle_disconnect_packet(&pkt)?; },
-            _ => {},
+            PacketType::Reset => {
+                self.handle_reset_packet(bytes_read)?;
+            }
+            PacketType::Disconnect => {
+                self.handle_disconnect_packet(&pkt)?;
+            }
+            _ => {}
         }
 
         self.remote_msg_id = self.next_msg_id(&pkt)?;
 
         let res: Result<ConnectionState, OssuaryError> = match self.state {
             // no-op states
-            ConnectionState::Failing(_) |
-            ConnectionState::Failed(_) |
-            ConnectionState::Resetting(_) |
-            ConnectionState::ClientRaiseUntrustedServer |
-            ConnectionState::ClientWaitServerApproval => {
-                Ok(self.state.clone())
-            },
+            ConnectionState::Failing(_)
+            | ConnectionState::Failed(_)
+            | ConnectionState::Resetting(_)
+            | ConnectionState::ClientRaiseUntrustedServer
+            | ConnectionState::ClientWaitServerApproval => Ok(self.state.clone()),
 
             // Non-receive states.  Receiving handshake data is an error.
-            ConnectionState::ClientSendHandshake |
-            ConnectionState::ClientSendAuthentication |
-            ConnectionState::ServerSendHandshake |
-            ConnectionState::Encrypted => {
-                Err(OssuaryError::InvalidPacket("Received unexpected handshake packet.".into()))
-            },
+            ConnectionState::ClientSendHandshake
+            | ConnectionState::ClientSendAuthentication
+            | ConnectionState::ServerSendHandshake
+            | ConnectionState::Encrypted => Err(OssuaryError::InvalidPacket(
+                "Received unexpected handshake packet.".into(),
+            )),
 
             // Received expected handshake packet
-            ConnectionState::ServerWaitHandshake(_) => {
-                self.recv_client_handshake(&pkt)
-            },
-            ConnectionState::ClientWaitHandshake(_t) => {
-                self.recv_server_handshake(&pkt)
-            },
-            ConnectionState::ServerWaitAuthentication(_t) => {
-                self.recv_client_auth(&pkt)
-            },
+            ConnectionState::ServerWaitHandshake(_) => self.recv_client_handshake(&pkt),
+            ConnectionState::ClientWaitHandshake(_t) => self.recv_server_handshake(&pkt),
+            ConnectionState::ServerWaitAuthentication(_t) => self.recv_client_auth(&pkt),
 
             // Received expected reset packet
-            ConnectionState::ResetWait => {
-                match pkt.kind() {
-                    PacketType::Reset => {
-                        self.remote_msg_id = 0;
-                        match self.conn_type {
-                            ConnectionType::Client => Ok(ConnectionState::ClientSendHandshake),
-                            _ => Ok(ConnectionState::ServerWaitHandshake(std::time::SystemTime::now())),
-                        }
-                    },
-                    _ => {
-                        Ok(self.state.clone())
-                    },
+            ConnectionState::ResetWait => match pkt.kind() {
+                PacketType::Reset => {
+                    self.remote_msg_id = 0;
+                    match self.conn_type {
+                        ConnectionType::Client => Ok(ConnectionState::ClientSendHandshake),
+                        _ => Ok(ConnectionState::ServerWaitHandshake(
+                            std::time::SystemTime::now(),
+                        )),
+                    }
                 }
-            }
+                _ => Ok(self.state.clone()),
+            },
         };
         match res {
             Ok(s) => {
                 self.state = s;
                 Ok(bytes_read)
-            },
+            }
             Err(e) => {
                 self.reset_state(None);
                 // bytes_read not returned on error, but will be consumed again
@@ -541,18 +635,23 @@ impl OssuaryConnection {
         if let Ok(dur) = t.elapsed() {
             if dur.as_secs() > MAX_HANDSHAKE_WAIT_TIME {
                 self.reset_state(None);
-                return true
+                return true;
             }
         }
         false
     }
 
     /// Received packet, expecting ClientHandshake
-    fn recv_client_handshake(&mut self, pkt: &NetworkPacket) -> Result<ConnectionState, OssuaryError> {
+    fn recv_client_handshake(
+        &mut self,
+        pkt: &NetworkPacket,
+    ) -> Result<ConnectionState, OssuaryError> {
         match pkt.kind() {
-            PacketType::ClientHandshake => {},
+            PacketType::ClientHandshake => {}
             _ => {
-                return Err(OssuaryError::InvalidPacket("Received unexpected handshake packet.".into()));
+                return Err(OssuaryError::InvalidPacket(
+                    "Received unexpected handshake packet.".into(),
+                ));
             }
         }
         let inner_pkt = ClientHandshakePacket::from_packet(&pkt)?;
@@ -567,19 +666,30 @@ impl OssuaryConnection {
     }
 
     /// Received packet, expecting ServerHandshake
-    fn recv_server_handshake(&mut self, pkt: &NetworkPacket) -> Result<ConnectionState, OssuaryError> {
+    fn recv_server_handshake(
+        &mut self,
+        pkt: &NetworkPacket,
+    ) -> Result<ConnectionState, OssuaryError> {
         match pkt.kind() {
-            PacketType::ServerHandshake => {},
+            PacketType::ServerHandshake => {}
             _ => {
-                return Err(OssuaryError::InvalidPacket("Received unexpected handshake packet.".into()));
+                return Err(OssuaryError::InvalidPacket(
+                    "Received unexpected handshake packet.".into(),
+                ));
             }
         }
         let inner_pkt = ServerHandshakePacket::from_packet(&pkt)?;
 
         self.add_remote_key(&inner_pkt.public_key, &inner_pkt.nonce);
         let nonce: &[u8] = &inner_pkt.nonce;
-        let session = self.local_key.session.as_ref().map(|s| s.as_bytes()).unwrap_or(&[0u8; KEY_LEN]);
-        let mut plaintext: [u8; SERVER_HANDSHAKE_SUBPACKET_LEN] = [0u8; SERVER_HANDSHAKE_SUBPACKET_LEN];
+        let session = self
+            .local_key
+            .session
+            .as_ref()
+            .map(|s| s.as_bytes())
+            .unwrap_or(&[0u8; KEY_LEN]);
+        let mut plaintext: [u8; SERVER_HANDSHAKE_SUBPACKET_LEN] =
+            [0u8; SERVER_HANDSHAKE_SUBPACKET_LEN];
 
         let _ = decrypt_to_bytes(session, &nonce, &inner_pkt.subpacket, &mut plaintext)?;
         let enc_pkt = ServerEncryptedHandshakePacket::from_bytes(&plaintext)?;
@@ -589,7 +699,10 @@ impl OssuaryConnection {
         // All servers should have an auth key set, so
         // these parameters should be non-zero and the
         // signature should verify.
-        if is_zero(&enc_pkt.challenge) || is_zero(&enc_pkt.signature) || is_zero(&enc_pkt.public_key) {
+        if is_zero(&enc_pkt.challenge)
+            || is_zero(&enc_pkt.signature)
+            || is_zero(&enc_pkt.public_key)
+        {
             // Parameters must be non-zero
             return Err(OssuaryError::InvalidSignature);
         }
@@ -597,8 +710,9 @@ impl OssuaryConnection {
         // This is the first encrypted message, so the nonce has not changed yet
         let mut sign_data = [0u8; KEY_LEN + NONCE_LEN + CHALLENGE_LEN];
         sign_data[0..KEY_LEN].copy_from_slice(&inner_pkt.public_key);
-        sign_data[KEY_LEN..KEY_LEN+NONCE_LEN].copy_from_slice(&nonce);
-        sign_data[KEY_LEN+NONCE_LEN..].copy_from_slice(&self.local_auth.challenge.unwrap_or([0u8; CHALLENGE_LEN]));
+        sign_data[KEY_LEN..KEY_LEN + NONCE_LEN].copy_from_slice(&nonce);
+        sign_data[KEY_LEN + NONCE_LEN..]
+            .copy_from_slice(&self.local_auth.challenge.unwrap_or([0u8; CHALLENGE_LEN]));
         let _ = pubkey.verify(&sign_data, &signature)?;
 
         self.remote_auth = AuthKeyMaterial {
@@ -607,7 +721,10 @@ impl OssuaryConnection {
             signature: Some(enc_pkt.signature),
             secret_key: None,
         };
-        let _ = self.remote_key.as_mut().map(|k| increment_nonce(&mut k.nonce));
+        let _ = self
+            .remote_key
+            .as_mut()
+            .map(|k| increment_nonce(&mut k.nonce));
 
         match self.authorized_keys.contains(&enc_pkt.public_key) {
             true => Ok(ConnectionState::ClientSendAuthentication),
@@ -618,14 +735,25 @@ impl OssuaryConnection {
     /// Received packet, expecting ClientAuthentication
     fn recv_client_auth(&mut self, pkt: &NetworkPacket) -> Result<ConnectionState, OssuaryError> {
         match pkt.kind() {
-            PacketType::ClientAuthentication => {},
+            PacketType::ClientAuthentication => {}
             _ => {
-                return Err(OssuaryError::InvalidPacket("Received unexpected handshake packet.".into()));
-            },
+                return Err(OssuaryError::InvalidPacket(
+                    "Received unexpected handshake packet.".into(),
+                ));
+            }
         }
         let inner_pkt = ClientAuthenticationPacket::from_packet(&pkt)?;
-        let session = self.local_key.session.as_ref().map(|s| s.as_bytes()).unwrap_or(&[0u8; KEY_LEN]);
-        let nonce: &[u8] = self.remote_key.as_ref().map(|k| &k.nonce).unwrap_or(&[0u8; NONCE_LEN]);
+        let session = self
+            .local_key
+            .session
+            .as_ref()
+            .map(|s| s.as_bytes())
+            .unwrap_or(&[0u8; KEY_LEN]);
+        let nonce: &[u8] = self
+            .remote_key
+            .as_ref()
+            .map(|k| &k.nonce)
+            .unwrap_or(&[0u8; NONCE_LEN]);
         let mut plaintext: [u8; CLIENT_AUTH_SUBPACKET_LEN] = [0u8; CLIENT_AUTH_SUBPACKET_LEN];
 
         let _ = decrypt_to_bytes(session, &nonce, &inner_pkt.subpacket, &mut plaintext)?;
@@ -644,9 +772,14 @@ impl OssuaryConnection {
 
                 // This is the first encrypted message, so the nonce has not changed yet
                 let mut sign_data = [0u8; KEY_LEN + NONCE_LEN + CHALLENGE_LEN];
-                sign_data[0..KEY_LEN].copy_from_slice(self.remote_key.as_ref().map(|k| &k.public).unwrap_or(&[0u8; KEY_LEN]));
-                sign_data[KEY_LEN..KEY_LEN+NONCE_LEN].copy_from_slice(&nonce);
-                sign_data[KEY_LEN+NONCE_LEN..].copy_from_slice(&challenge);
+                sign_data[0..KEY_LEN].copy_from_slice(
+                    self.remote_key
+                        .as_ref()
+                        .map(|k| &k.public)
+                        .unwrap_or(&[0u8; KEY_LEN]),
+                );
+                sign_data[KEY_LEN..KEY_LEN + NONCE_LEN].copy_from_slice(&nonce);
+                sign_data[KEY_LEN + NONCE_LEN..].copy_from_slice(&challenge);
                 let _ = pubkey.verify(&sign_data, &signature)?;
 
                 // Ensure this key is permitted to connect
@@ -654,11 +787,14 @@ impl OssuaryConnection {
                     return Err(OssuaryError::InvalidKey);
                 }
             }
-            _ => {},
+            _ => {}
         }
         self.remote_auth.signature = Some(enc_pkt.signature);
         self.remote_auth.public_key = Some(pubkey);
-        let _ = self.remote_key.as_mut().map(|k| increment_nonce(&mut k.nonce));
+        let _ = self
+            .remote_key
+            .as_mut()
+            .map(|k| increment_nonce(&mut k.nonce));
         Ok(ConnectionState::Encrypted)
     }
 
@@ -674,21 +810,19 @@ impl OssuaryConnection {
             Some(s) => {
                 let mut sign_data = [0u8; KEY_LEN + NONCE_LEN + CHALLENGE_LEN];
                 sign_data[0..KEY_LEN].copy_from_slice(pubkey);
-                sign_data[KEY_LEN..KEY_LEN+NONCE_LEN].copy_from_slice(nonce);
-                sign_data[KEY_LEN+NONCE_LEN..].copy_from_slice(challenge);
+                sign_data[KEY_LEN..KEY_LEN + NONCE_LEN].copy_from_slice(nonce);
+                sign_data[KEY_LEN + NONCE_LEN..].copy_from_slice(challenge);
                 let server_public = self.local_auth.public_key.unwrap_or_default();
                 let exp_key = ExpandedSecretKey::from(s);
                 exp_key.sign(&sign_data, &server_public).to_bytes()
-            },
+            }
             None => [0; SIGNATURE_LEN],
         }
     }
 
     pub(crate) fn handle_reset_packet(&mut self, bytes_read: usize) -> Result<usize, OssuaryError> {
         match self.state {
-            ConnectionState::ResetWait => {
-                Ok(0)
-            },
+            ConnectionState::ResetWait => Ok(0),
             _ => {
                 self.reset_state(None);
                 self.state = ConnectionState::Resetting(false);
@@ -697,30 +831,33 @@ impl OssuaryConnection {
         }
     }
 
-    pub(crate) fn handle_disconnect_packet(&mut self, pkt: &NetworkPacket) -> Result<usize, OssuaryError> {
+    pub(crate) fn handle_disconnect_packet(
+        &mut self,
+        pkt: &NetworkPacket,
+    ) -> Result<usize, OssuaryError> {
         let rs_pkt = interpret_packet::<ResetPacket>(pkt)?;
         match rs_pkt.error {
             true => {
                 self.reset_state(Some(OssuaryError::ConnectionFailed));
                 Err(OssuaryError::ConnectionFailed)
-            },
+            }
             false => {
                 self.reset_state(Some(OssuaryError::ConnectionClosed));
                 Err(OssuaryError::ConnectionClosed)
-            },
+            }
         }
     }
 }
 
-fn encrypt_to_bytes(session_key: &[u8], nonce: &[u8],
-                    data: &[u8], mut out: &mut [u8]) -> Result<usize, OssuaryError> {
+fn encrypt_to_bytes(
+    session_key: &[u8],
+    nonce: &[u8],
+    data: &[u8],
+    mut out: &mut [u8],
+) -> Result<usize, OssuaryError> {
     let aad = [];
     let mut ciphertext = Vec::with_capacity(data.len());
-    let tag = encrypt(session_key,
-                      nonce,
-                      &aad,
-                      data,
-                      &mut ciphertext)?;
+    let tag = encrypt(session_key, nonce, &aad, data, &mut ciphertext)?;
     let pkt: EncryptedPacket = EncryptedPacket {
         tag_len: tag.len() as u16,
         data_len: ciphertext.len() as u16,
@@ -732,8 +869,12 @@ fn encrypt_to_bytes(session_key: &[u8], nonce: &[u8],
     Ok(size)
 }
 
-fn decrypt_to_bytes(session_key: &[u8], nonce: &[u8],
-                    data: &[u8], mut out: &mut [u8]) -> Result<usize, OssuaryError> {
+fn decrypt_to_bytes(
+    session_key: &[u8],
+    nonce: &[u8],
+    data: &[u8],
+    mut out: &mut [u8],
+) -> Result<usize, OssuaryError> {
     let s: &EncryptedPacket = slice_as_struct(data)?;
     if s.tag_len != 16 {
         return Err(OssuaryError::InvalidPacket("Invalid packet length".into()));
@@ -743,10 +884,7 @@ fn decrypt_to_bytes(session_key: &[u8], nonce: &[u8],
     let ciphertext = &rest[..data_pkt.data_len as usize];
     let tag = &rest[data_pkt.data_len as usize..];
     let aad = [];
-    decrypt(session_key,
-            &nonce,
-            &aad, &ciphertext, &tag,
-            &mut out)?;
+    decrypt(session_key, &nonce, &aad, &ciphertext, &tag, &mut out)?;
     Ok(ciphertext.len())
 }
 

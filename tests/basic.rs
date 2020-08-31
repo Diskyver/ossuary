@@ -5,21 +5,25 @@
 // Establishes a non-authenticated session between a client and server over a
 // TCP connection, and exchanges encrypted messages.
 //
-use ossuary::{OssuaryConnection, ConnectionType};
 use ossuary::OssuaryError;
+use ossuary::{ConnectionType, OssuaryConnection};
 
-use std::thread;
 use std::net::{TcpListener, TcpStream};
+use std::thread;
 
-fn event_loop<T>(mut conn: OssuaryConnection,
-                 mut stream: T,
-                 is_server: bool) -> Result<(), std::io::Error>
-where T: std::io::Read + std::io::Write {
+fn event_loop<T>(
+    mut conn: OssuaryConnection,
+    mut stream: T,
+    is_server: bool,
+) -> Result<(), std::io::Error>
+where
+    T: std::io::Read + std::io::Write,
+{
     // Run the opaque handshake until the connection is established
     loop {
         match conn.handshake_done() {
             Ok(true) => break,
-            Ok(false) => {},
+            Ok(false) => {}
             Err(OssuaryError::UntrustedServer(pubkey)) => {
                 // Trust-On-First-Use would be implemented here.  This
                 // client trusts all servers.
@@ -32,7 +36,7 @@ where T: std::io::Read + std::io::Write {
             loop {
                 match conn.recv_handshake(&mut stream) {
                     Ok(_) => break,
-                    Err(OssuaryError::WouldBlock(_)) => {},
+                    Err(OssuaryError::WouldBlock(_)) => {}
                     Err(e) => panic!("Handshake failed: {:?}", e),
                 }
             }
@@ -48,16 +52,18 @@ where T: std::io::Read + std::io::Write {
     let _ = conn.send_data(&mut plaintext, &mut stream);
 
     // Read a message from the other party
-    let mut recv_plaintext = vec!();
+    let mut recv_plaintext = vec![];
     loop {
         match conn.recv_data(&mut stream, &mut recv_plaintext) {
             Ok(_) => {
-                println!("(basic) received: {:?}",
-                         String::from_utf8(recv_plaintext.clone()).unwrap());
+                println!(
+                    "(basic) received: {:?}",
+                    String::from_utf8(recv_plaintext.clone()).unwrap()
+                );
                 assert_eq!(recv_plaintext.as_slice(), response);
                 break;
-            },
-            _ => {},
+            }
+            _ => {}
         }
     }
     conn.disconnect(false);
@@ -85,9 +91,13 @@ fn client() -> Result<(), std::io::Error> {
 
 #[test]
 fn basic() {
-    let server = thread::spawn(move || { let _ = server(); });
+    let server = thread::spawn(move || {
+        let _ = server();
+    });
     std::thread::sleep(std::time::Duration::from_millis(500));
-    let child = thread::spawn(move || { let _ = client(); });
+    let child = thread::spawn(move || {
+        let _ = client();
+    });
     let _ = child.join();
     let _ = server.join();
 }
