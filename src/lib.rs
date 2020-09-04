@@ -236,7 +236,6 @@
 //  - rustdoc everything
 //
 
-pub mod clib;
 mod comm;
 mod connection;
 mod error;
@@ -244,11 +243,9 @@ mod handshake;
 
 pub use error::OssuaryError;
 
-use chacha20_poly1305_aead::{decrypt, encrypt};
-use ed25519_dalek::{ExpandedSecretKey, Keypair, PublicKey, SecretKey, Signature};
-use x25519_dalek::{EphemeralSecret, PublicKey as EphemeralPublic, SharedSecret};
-
+use ed25519_dalek::{ExpandedSecretKey, Keypair, PublicKey, SecretKey};
 use rand::rngs::OsRng;
+use x25519_dalek::{EphemeralSecret, PublicKey as EphemeralPublic, SharedSecret};
 
 const PROTOCOL_VERSION: u8 = 1u8;
 
@@ -345,8 +342,6 @@ impl PacketType {
 struct EncryptedPacket {
     /// Length of the data (not including this header or HMAC tag)
     data_len: u16,
-    /// Length of HMAC tag following the data
-    tag_len: u16,
 }
 
 /// Header prepended to the front of all packets, regardless of encryption.
@@ -567,8 +562,7 @@ impl Default for OssuaryConnection {
 
 /// Generate secret/public Ed25519 keypair for host authentication
 pub fn generate_auth_keypair() -> Result<([u8; KEY_LEN], [u8; KEY_LEN]), OssuaryError> {
-    let mut rng = OsRng::new()?;
-    let keypair: Keypair = Keypair::generate(&mut rng);
+    let keypair: Keypair = Keypair::generate(&mut OsRng);
     Ok((keypair.secret.to_bytes(), keypair.public.to_bytes()))
 }
 

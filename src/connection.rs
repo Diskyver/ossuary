@@ -19,11 +19,10 @@ use rand::RngCore;
 
 impl OssuaryConnection {
     fn generate_session_material() -> Result<SessionKeyMaterial, OssuaryError> {
-        let mut rng = OsRng::new().expect("RNG not available.");
-        let sec_key = EphemeralSecret::new(&mut rng);
+        let sec_key = EphemeralSecret::new(&mut OsRng);
         let pub_key = EphemeralPublic::from(&sec_key);
         let mut nonce: [u8; NONCE_LEN] = [0; NONCE_LEN];
-        rng.fill_bytes(&mut nonce);
+        OsRng.fill_bytes(&mut nonce);
 
         Ok(SessionKeyMaterial {
             secret: Some(sec_key),
@@ -47,10 +46,8 @@ impl OssuaryConnection {
         conn_type: ConnectionType,
         auth_secret_key: Option<&[u8]>,
     ) -> Result<OssuaryConnection, OssuaryError> {
-        let mut rng = OsRng::new().expect("RNG not available.");
-
         let mut challenge: [u8; CHALLENGE_LEN] = [0; CHALLENGE_LEN];
-        rng.fill_bytes(&mut challenge);
+        OsRng.fill_bytes(&mut challenge);
 
         let key = OssuaryConnection::generate_session_material()?;
 
@@ -71,7 +68,7 @@ impl OssuaryConnection {
                     // Generate a random auth key for servers, if not provided
                     _ => {
                         let mut sec: [u8; KEY_LEN] = [0u8; KEY_LEN];
-                        rng.fill_bytes(&mut sec);
+                        OsRng.fill_bytes(&mut sec);
                         let secret = SecretKey::from_bytes(&sec)?;
                         let public = PublicKey::from(&secret);
                         (Some(secret), Some(public))

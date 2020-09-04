@@ -15,7 +15,12 @@
 //
 use crate::*;
 
+use chacha20poly1305::{
+    aead::{Aead, NewAead},
+    ChaCha20Poly1305, Key, Nonce,
+};
 use comm::{read_packet, write_packet, write_stored_packet};
+use ed25519_dalek::{ed25519::signature::Signature, Verifier};
 //use error::OssuaryResult;
 
 use std::io::Write;
@@ -404,14 +409,14 @@ impl OssuaryConnection {
     }
 
     /// Ready to send a disconnect packet
-    fn send_disconnect<T, U>(
+    async fn send_disconnect<T, U>(
         &mut self,
         e: OssuaryError,
         mut buf: T,
     ) -> Result<(usize, ConnectionState), OssuaryError>
     where
         T: std::ops::DerefMut<Target = U>,
-        U: std::io::Write,
+        U: futures::io::AsyncWrite,
     {
         // Tell remote host to disconnect
         let pkt: ResetPacket = match e {
@@ -688,10 +693,8 @@ impl OssuaryConnection {
             .as_ref()
             .map(|s| s.as_bytes())
             .unwrap_or(&[0u8; KEY_LEN]);
-        let mut plaintext: [u8; SERVER_HANDSHAKE_SUBPACKET_LEN] =
-            [0u8; SERVER_HANDSHAKE_SUBPACKET_LEN];
 
-        let _ = decrypt_to_bytes(session, &nonce, &inner_pkt.subpacket, &mut plaintext)?;
+        let plaintext = decrypt_to_bytes(session, &nonce, &inner_pkt.subpacket)?;
         let enc_pkt = ServerEncryptedHandshakePacket::from_bytes(&plaintext)?;
         let pubkey = PublicKey::from_bytes(&enc_pkt.public_key)?;
         let signature = Signature::from_bytes(&enc_pkt.signature)?;
@@ -754,9 +757,7 @@ impl OssuaryConnection {
             .as_ref()
             .map(|k| &k.nonce)
             .unwrap_or(&[0u8; NONCE_LEN]);
-        let mut plaintext: [u8; CLIENT_AUTH_SUBPACKET_LEN] = [0u8; CLIENT_AUTH_SUBPACKET_LEN];
-
-        let _ = decrypt_to_bytes(session, &nonce, &inner_pkt.subpacket, &mut plaintext)?;
+        let plaintext = decrypt_to_bytes(session, &nonce, &inner_pkt.subpacket)?;
         let enc_pkt = ClientEncryptedAuthenticationPacket::from_bytes(&plaintext)?;
 
         let sig: &[u8] = &enc_pkt.signature;
@@ -855,17 +856,14 @@ fn encrypt_to_bytes(
     data: &[u8],
     mut out: &mut [u8],
 ) -> Result<usize, OssuaryError> {
-    let aad = [];
-    let mut ciphertext = Vec::with_capacity(data.len());
-    let tag = encrypt(session_key, nonce, &aad, data, &mut ciphertext)?;
+    let cipher = ChaCha20Poly1305::new(Key::from_slice(session_key));
+    let ciphertext = cipher.encrypt(Nonce::from_slice(nonce), data)?;
     let pkt: EncryptedPacket = EncryptedPacket {
-        tag_len: tag.len() as u16,
         data_len: ciphertext.len() as u16,
     };
     let mut size = 0;
     size += out.write(struct_as_slice(&pkt))?;
     size += out.write(&ciphertext)?;
-    size += out.write(&tag)?;
     Ok(size)
 }
 
@@ -873,19 +871,14 @@ fn decrypt_to_bytes(
     session_key: &[u8],
     nonce: &[u8],
     data: &[u8],
-    mut out: &mut [u8],
-) -> Result<usize, OssuaryError> {
+) -> Result<Vec<u8>, OssuaryError> {
     let s: &EncryptedPacket = slice_as_struct(data)?;
-    if s.tag_len != 16 {
-        return Err(OssuaryError::InvalidPacket("Invalid packet length".into()));
-    }
     let data_pkt = s;
     let rest = &data[::std::mem::size_of::<EncryptedPacket>()..];
     let ciphertext = &rest[..data_pkt.data_len as usize];
-    let tag = &rest[data_pkt.data_len as usize..];
-    let aad = [];
-    decrypt(session_key, &nonce, &aad, &ciphertext, &tag, &mut out)?;
-    Ok(ciphertext.len())
+    let cipher = ChaCha20Poly1305::new(Key::from_slice(session_key));
+    let plaintext = cipher.decrypt(Nonce::from_slice(nonce), ciphertext)?;
+    Ok(plaintext)
 }
 
 fn is_zero(data: &[u8]) -> bool {

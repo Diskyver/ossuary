@@ -208,8 +208,8 @@ impl From<ed25519_dalek::SignatureError> for OssuaryError {
         OssuaryError::InvalidSignature
     }
 }
-impl From<chacha20_poly1305_aead::DecryptError> for OssuaryError {
-    fn from(_error: chacha20_poly1305_aead::DecryptError) -> Self {
+impl From<chacha20poly1305::aead::Error> for OssuaryError {
+    fn from(_error: chacha20poly1305::aead::Error) -> Self {
         OssuaryError::DecryptionFailed
     }
 }
