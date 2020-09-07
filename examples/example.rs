@@ -13,7 +13,7 @@ use tokio::{
     spawn,
 };
 
-use tokio_util::compat::{Tokio02AsyncReadCompatExt, Tokio02AsyncWriteCompatExt};
+use tokio_util::compat::Tokio02AsyncReadCompatExt;
 
 async fn event_loop(mut conn: OssuaryConnection, stream: TcpStream) -> Result<(), std::io::Error> {
     let mut strings = vec!["message3", "message2", "message1"];
@@ -72,16 +72,14 @@ async fn server() -> Result<(), std::io::Error> {
     let (stream, _) = listener.accept().await.unwrap();
     // This server lets any client connect
     let conn = OssuaryConnection::new(ConnectionType::UnauthenticatedServer, None).unwrap();
-    let _ = event_loop(conn, stream);
-    Ok(())
+    event_loop(conn, stream).await
 }
 
 async fn client() -> Result<(), std::io::Error> {
     let stream = TcpStream::connect("127.0.0.1:9988").await.unwrap();
     // This client doesn't know any servers, but will use Trust-On-First-Use
     let conn = OssuaryConnection::new(ConnectionType::Client, None).unwrap();
-    let _ = event_loop(conn, stream);
-    Ok(())
+    event_loop(conn, stream).await
 }
 
 #[tokio::main]
@@ -90,6 +88,6 @@ async fn main() {
     std::thread::sleep(std::time::Duration::from_millis(500));
     let client = spawn(client());
 
-    server.await;
-    client.await;
+    server.await.unwrap().unwrap();
+    client.await.unwrap().unwrap();
 }

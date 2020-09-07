@@ -7,8 +7,8 @@
 // errors are raised, and that the connection either retries successfully or
 // fails permanently depending on the test.
 //
-use ossuary::OssuaryError;
-use ossuary::{ConnectionType, OssuaryConnection};
+use ossuary_async::OssuaryError;
+use ossuary_async::{ConnectionType, OssuaryConnection};
 
 #[derive(Debug)]
 enum Corruption {
@@ -23,8 +23,8 @@ enum Corruption {
     ServerInvalidPkt,
 }
 
-#[test]
-fn corruption() {
+#[tokio::test]
+async fn corruption() {
     // Corruption test tuple format:
     // (test type, loop iteration, byte offset, byte value, expected recv error, permanent)
     let corruptions = [
@@ -32,8 +32,8 @@ fn corruption() {
         // 8 bytes network header, 8 bytes packet header, 32 bytes key, 12 bytes nonce, 32 bytes challenge
         (
             Corruption::ClientInvalidPkt,
-            0,
-            0,
+            0i32,
+            0usize,
             0xaa,
             OssuaryError::InvalidPacket("Oversized packet".into()),
             true,
@@ -205,7 +205,7 @@ fn corruption() {
         let mut loop_count = 0;
 
         loop {
-            let mut done = 0;
+            let mut done = 0i32;
             let (send_conn, recv_conn, mut send_buf, recv_buf) = match loop_conn {
                 LoopConn::LoopClient => (
                     &mut client_conn,
@@ -261,14 +261,14 @@ fn corruption() {
             if done == 2 {
                 break;
             }
-            send_conn.send_handshake(&mut send_buf).unwrap();
+            send_conn.send_handshake(&mut send_buf).await.unwrap();
             if send_buf.len() > 0 {
                 //println!("{:?}({}) {:?}", loop_conn, loop_count, send_buf);
             }
             if loop_count == corruption.1 {
                 send_buf[corruption.2] = corruption.3;
             }
-            match send_conn.recv_handshake(&mut recv_buf.as_slice()) {
+            match send_conn.recv_handshake(&mut recv_buf.as_slice()).await {
                 Ok(b) => {
                     recv_buf.drain(0..b);
                 }
@@ -293,7 +293,10 @@ fn corruption() {
             match send_conn.handshake_done() {
                 Ok(true) => {
                     let mut plaintext = Vec::<u8>::new();
-                    match send_conn.recv_data(&mut recv_buf.as_slice(), &mut plaintext) {
+                    match send_conn
+                        .recv_data(&mut recv_buf.as_slice(), &mut plaintext)
+                        .await
+                    {
                         Ok((b, _)) => {
                             recv_buf.drain(0..b);
                         }

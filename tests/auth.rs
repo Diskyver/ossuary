@@ -60,7 +60,7 @@ fn is_done(
     }
 }
 
-fn connect(
+async fn connect(
     mut client_conn: OssuaryConnection,
     mut server_conn: OssuaryConnection,
     expected_error: Option<ExpectedError>,
@@ -90,9 +90,9 @@ fn connect(
         if send_done && recv_done {
             break;
         }
-        send_conn.send_handshake(&mut send_buf).unwrap();
+        send_conn.send_handshake(&mut send_buf).await.unwrap();
         println!("{:?} {:?}", loop_conn, send_buf);
-        match send_conn.recv_handshake(&mut recv_buf.as_slice()) {
+        match send_conn.recv_handshake(&mut recv_buf.as_slice()).await {
             Ok(b) => {
                 recv_buf.drain(0..b);
             }
@@ -108,8 +108,8 @@ fn connect(
     }
 }
 
-#[test]
-fn auth_no_keys_tofu() {
+#[tokio::test]
+async fn auth_no_keys_tofu() {
     // Neither requires authentication, client uses Trust-On-First-Use
     let client_conn = OssuaryConnection::new(ConnectionType::Client, None).unwrap();
     let server_conn = OssuaryConnection::new(ConnectionType::UnauthenticatedServer, None).unwrap();
@@ -118,11 +118,12 @@ fn auth_no_keys_tofu() {
         server_conn,
         Some(ExpectedError::UntrustedServer),
         true,
-    );
+    )
+    .await;
 }
 
-#[test]
-fn auth_client_key_one_good() {
+#[tokio::test]
+async fn auth_client_key_one_good() {
     // Server requires authentication, client is valid, client uses TOFU
     let client_conn =
         OssuaryConnection::new(ConnectionType::Client, Some(CLIENT_SECRET.clone())).unwrap();
@@ -134,10 +135,11 @@ fn auth_client_key_one_good() {
         server_conn,
         Some(ExpectedError::UntrustedServer),
         true,
-    );
+    )
+    .await;
 }
-#[test]
-fn auth_client_key_many_good() {
+#[tokio::test]
+async fn auth_client_key_many_good() {
     // Server requires authentication, client is valid, client uses TOFU
     let client_conn =
         OssuaryConnection::new(ConnectionType::Client, Some(CLIENT_SECRET.clone())).unwrap();
@@ -150,11 +152,12 @@ fn auth_client_key_many_good() {
         server_conn,
         Some(ExpectedError::UntrustedServer),
         true,
-    );
+    )
+    .await;
 }
-#[test]
+#[tokio::test]
 #[should_panic(expected = "InvalidKey")]
-fn auth_client_key_one_bad() {
+async fn auth_client_key_one_bad() {
     // Server requires authentication, client is invalid, expected failure
     let client_conn =
         OssuaryConnection::new(ConnectionType::Client, Some(CLIENT_SECRET.clone())).unwrap();
@@ -166,11 +169,12 @@ fn auth_client_key_one_bad() {
         server_conn,
         Some(ExpectedError::UntrustedServer),
         true,
-    );
+    )
+    .await;
 }
-#[test]
+#[tokio::test]
 #[should_panic(expected = "InvalidKey")]
-fn auth_client_key_many_bad() {
+async fn auth_client_key_many_bad() {
     // Server requires authentication, client is invalid, expected failure
     let client_conn =
         OssuaryConnection::new(ConnectionType::Client, Some(CLIENT_SECRET.clone())).unwrap();
@@ -183,10 +187,11 @@ fn auth_client_key_many_bad() {
         server_conn,
         Some(ExpectedError::UntrustedServer),
         true,
-    );
+    )
+    .await;
 }
-#[test]
-fn auth_server_key_good() {
+#[tokio::test]
+async fn auth_server_key_good() {
     // Client requires authentication
     let mut client_conn = OssuaryConnection::new(ConnectionType::Client, None).unwrap();
     let server_conn = OssuaryConnection::new(
@@ -195,11 +200,11 @@ fn auth_server_key_good() {
     )
     .unwrap();
     let _ = client_conn.add_authorized_key(SERVER_PUBLIC).unwrap();
-    connect(client_conn, server_conn, None, false);
+    connect(client_conn, server_conn, None, false).await;
 }
-#[test]
+#[tokio::test]
 #[should_panic(expected = "Untrusted server")]
-fn auth_server_key_bad() {
+async fn auth_server_key_bad() {
     // Client require authentication, expected failure
     let mut client_conn = OssuaryConnection::new(ConnectionType::Client, None).unwrap();
     let server_conn = OssuaryConnection::new(
@@ -208,10 +213,10 @@ fn auth_server_key_bad() {
     )
     .unwrap();
     let _ = client_conn.add_authorized_key(CLIENT_PUBLIC2).unwrap();
-    connect(client_conn, server_conn, None, false);
+    connect(client_conn, server_conn, None, false).await;
 }
-#[test]
-fn auth_client_server_keys_good() {
+#[tokio::test]
+async fn auth_client_server_keys_good() {
     // Server and client require authentication
     let mut client_conn =
         OssuaryConnection::new(ConnectionType::Client, Some(CLIENT_SECRET.clone())).unwrap();
@@ -222,11 +227,11 @@ fn auth_client_server_keys_good() {
     .unwrap();
     let _ = server_conn.add_authorized_key(CLIENT_PUBLIC).unwrap();
     let _ = client_conn.add_authorized_key(SERVER_PUBLIC).unwrap();
-    connect(client_conn, server_conn, None, false);
+    connect(client_conn, server_conn, None, false).await;
 }
-#[test]
 #[should_panic(expected = "Untrusted server")]
-fn auth_client_server_keys_bad() {
+#[tokio::test]
+async fn auth_client_server_keys_bad() {
     // Server and client require authentication, expected failure
     let mut client_conn =
         OssuaryConnection::new(ConnectionType::Client, Some(CLIENT_SECRET.clone())).unwrap();
@@ -237,5 +242,5 @@ fn auth_client_server_keys_bad() {
     .unwrap();
     let _ = server_conn.add_authorized_key(CLIENT_PUBLIC2).unwrap();
     let _ = client_conn.add_authorized_key(CLIENT_PUBLIC).unwrap();
-    connect(client_conn, server_conn, None, false);
+    connect(client_conn, server_conn, None, false).await;
 }

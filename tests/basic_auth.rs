@@ -6,19 +6,24 @@
 // connection, and exchanges encrypted messages.  Both client and server only
 // accept connections from each other, authenticated with known keys.
 //
-use ossuary::OssuaryError;
-use ossuary::{ConnectionType, OssuaryConnection};
+use ossuary_async::OssuaryError;
+use ossuary_async::{ConnectionType, OssuaryConnection};
 
-use std::net::{TcpListener, TcpStream};
-use std::thread;
+use tokio::net::{TcpListener, TcpStream};
 
-fn event_loop<T>(
+use futures::io::{AsyncRead, AsyncWrite};
+
+use tokio::spawn;
+
+use tokio_util::compat::Tokio02AsyncReadCompatExt;
+
+async fn event_loop<T>(
     mut conn: OssuaryConnection,
     mut stream: T,
     is_server: bool,
 ) -> Result<(), std::io::Error>
 where
-    T: std::io::Read + std::io::Write,
+    T: AsyncWrite + Unpin + AsyncRead,
 {
     // Run the opaque handshake until the connection is established
     loop {
@@ -30,9 +35,9 @@ where
             }
             Err(e) => panic!("Handshake failed with error: {:?}", e),
         }
-        if conn.send_handshake(&mut stream).is_ok() {
+        if conn.send_handshake(&mut stream).await.is_ok() {
             loop {
-                match conn.recv_handshake(&mut stream) {
+                match conn.recv_handshake(&mut stream).await {
                     Ok(_) => break,
                     Err(OssuaryError::WouldBlock(_)) => {}
                     _ => panic!("Handshake failed."),
@@ -52,7 +57,7 @@ where
     // Read a message from the other party
     let mut recv_plaintext = vec![];
     loop {
-        match conn.recv_data(&mut stream, &mut recv_plaintext) {
+        match conn.recv_data(&mut stream, &mut recv_plaintext).await {
             Ok(_) => {
                 println!(
                     "(basic_auth) received: {:?}",
@@ -67,9 +72,9 @@ where
     Ok(())
 }
 
-fn server() -> Result<(), std::io::Error> {
-    let listener = TcpListener::bind("127.0.0.1:9988").unwrap();
-    let stream: TcpStream = listener.incoming().next().unwrap().unwrap();
+async fn server() -> Result<(), std::io::Error> {
+    let mut listener = TcpListener::bind("127.0.0.1:9988").await.unwrap();
+    let (stream, _) = listener.accept().await.unwrap();
     let auth_secret_key = &[
         0x50, 0x29, 0x04, 0x97, 0x62, 0xbd, 0xa6, 0x07, 0x71, 0xca, 0x29, 0x14, 0xe3, 0x83, 0x19,
         0x0e, 0xa0, 0x9e, 0xd4, 0xb7, 0x1a, 0xf9, 0xc9, 0x59, 0x3e, 0xa3, 0x1c, 0x85, 0x0f, 0xc4,
@@ -84,12 +89,12 @@ fn server() -> Result<(), std::io::Error> {
     let mut conn =
         OssuaryConnection::new(ConnectionType::AuthenticatedServer, Some(auth_secret_key)).unwrap();
     let _ = conn.add_authorized_keys(client_keys).unwrap();
-    let _ = event_loop(conn, stream, true);
+    let _ = event_loop(conn, stream.compat(), true);
     Ok(())
 }
 
-fn client() -> Result<(), std::io::Error> {
-    let stream = TcpStream::connect("127.0.0.1:9988").unwrap();
+async fn client() -> Result<(), std::io::Error> {
+    let stream = TcpStream::connect("127.0.0.1:9988").await.unwrap();
     let sec_key = &[
         0x10, 0x86, 0x6e, 0xc4, 0x8a, 0x11, 0xf3, 0xc5, 0x6d, 0x77, 0xa6, 0x4b, 0x2f, 0x54, 0xaa,
         0x06, 0x6c, 0x0c, 0xb4, 0x75, 0xd8, 0xc8, 0x7d, 0x35, 0xb4, 0x91, 0xee, 0xd6, 0xac, 0x0b,
@@ -104,19 +109,16 @@ fn client() -> Result<(), std::io::Error> {
     // This client only accepts connections to a single known server
     let mut conn = OssuaryConnection::new(ConnectionType::Client, Some(sec_key)).unwrap();
     let _ = conn.add_authorized_keys(keys).unwrap();
-    let _ = event_loop(conn, stream, false);
+    let _ = event_loop(conn, stream.compat(), false);
     Ok(())
 }
 
-#[test]
-fn basic_auth() {
-    let server = thread::spawn(move || {
-        let _ = server();
-    });
+#[tokio::main]
+async fn main() {
+    let server = spawn(server());
     std::thread::sleep(std::time::Duration::from_millis(500));
-    let child = thread::spawn(move || {
-        let _ = client();
-    });
-    let _ = child.join();
-    let _ = server.join();
+    let client = spawn(client());
+
+    server.await.unwrap().unwrap();
+    client.await.unwrap().unwrap();
 }

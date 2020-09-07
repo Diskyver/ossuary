@@ -5,19 +5,24 @@
 // Establishes a non-authenticated session between a client and server over a
 // TCP connection, and exchanges encrypted messages.
 //
-use ossuary::OssuaryError;
-use ossuary::{ConnectionType, OssuaryConnection};
+use ossuary_async::OssuaryError;
+use ossuary_async::{ConnectionType, OssuaryConnection};
 
-use std::net::{TcpListener, TcpStream};
-use std::thread;
+use tokio::net::{TcpListener, TcpStream};
 
-fn event_loop<T>(
+use futures::io::{AsyncRead, AsyncWrite};
+
+use tokio::spawn;
+
+use tokio_util::compat::Tokio02AsyncReadCompatExt;
+
+async fn event_loop<T>(
     mut conn: OssuaryConnection,
     mut stream: T,
     is_server: bool,
 ) -> Result<(), std::io::Error>
 where
-    T: std::io::Read + std::io::Write,
+    T: AsyncWrite + Unpin + AsyncRead,
 {
     // Run the opaque handshake until the connection is established
     loop {
@@ -32,9 +37,9 @@ where
             }
             Err(e) => panic!("Handshake failed with error: {:?}", e),
         }
-        if conn.send_handshake(&mut stream).is_ok() {
+        if conn.send_handshake(&mut stream).await.is_ok() {
             loop {
-                match conn.recv_handshake(&mut stream) {
+                match conn.recv_handshake(&mut stream).await {
                     Ok(_) => break,
                     Err(OssuaryError::WouldBlock(_)) => {}
                     Err(e) => panic!("Handshake failed: {:?}", e),
@@ -54,7 +59,7 @@ where
     // Read a message from the other party
     let mut recv_plaintext = vec![];
     loop {
-        match conn.recv_data(&mut stream, &mut recv_plaintext) {
+        match conn.recv_data(&mut stream, &mut recv_plaintext).await {
             Ok(_) => {
                 println!(
                     "(basic) received: {:?}",
@@ -71,33 +76,27 @@ where
     Ok(())
 }
 
-fn server() -> Result<(), std::io::Error> {
-    let listener = TcpListener::bind("127.0.0.1:9988").unwrap();
-    let stream: TcpStream = listener.incoming().next().unwrap().unwrap();
-    let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(100u64)));
+async fn server() -> Result<(), std::io::Error> {
+    let mut listener = TcpListener::bind("127.0.0.1:9988").await.unwrap();
+    let (stream, _) = listener.accept().await.unwrap();
     // This server lets any client connect
     let conn = OssuaryConnection::new(ConnectionType::UnauthenticatedServer, None).unwrap();
-    let _ = event_loop(conn, stream, true);
-    Ok(())
+    event_loop(conn, stream.compat(), true).await
 }
 
-fn client() -> Result<(), std::io::Error> {
-    let stream = TcpStream::connect("127.0.0.1:9988").unwrap();
-    let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(100u64)));
+async fn client() -> Result<(), std::io::Error> {
+    let stream = TcpStream::connect("127.0.0.1:9988").await.unwrap();
+    // This client doesn't know any servers, but will use Trust-On-First-Use
     let conn = OssuaryConnection::new(ConnectionType::Client, None).unwrap();
-    let _ = event_loop(conn, stream, false);
-    Ok(())
+    event_loop(conn, stream.compat(), false).await
 }
 
-#[test]
-fn basic() {
-    let server = thread::spawn(move || {
-        let _ = server();
-    });
+#[tokio::main]
+async fn main() {
+    let server = spawn(server());
     std::thread::sleep(std::time::Duration::from_millis(500));
-    let child = thread::spawn(move || {
-        let _ = client();
-    });
-    let _ = child.join();
-    let _ = server.join();
+    let client = spawn(client());
+
+    server.await.unwrap().unwrap();
+    client.await.unwrap().unwrap();
 }
