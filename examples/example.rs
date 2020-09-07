@@ -11,6 +11,7 @@ use ossuary_async::{ConnectionType, OssuaryConnection};
 use tokio::{
     net::{TcpListener, TcpStream},
     spawn,
+    time::{delay_for, Duration},
 };
 
 use tokio_util::compat::Tokio02AsyncReadCompatExt;
@@ -30,13 +31,13 @@ async fn event_loop(mut conn: OssuaryConnection, stream: TcpStream) -> Result<()
         match conn.handshake_done() {
             // Handshaking
             Ok(false) => {
-                let _ = conn.send_handshake(&mut stream).await.unwrap(); // you should check errors
-                let _ = conn.recv_handshake(&mut stream).await;
+                conn.send_handshake(&mut stream).await.unwrap(); // you should check errors
+                conn.recv_handshake(&mut stream).await.unwrap();
             }
             // Transmitting on encrypted connection
             Ok(true) => {
                 if let Some(plaintext) = strings.pop() {
-                    let _ = conn.send_data(plaintext.as_bytes(), &mut stream);
+                    conn.send_data(plaintext.as_bytes(), &mut stream).await.unwrap();
                 }
                 if let Ok(_) = conn.recv_data(&mut stream, &mut plaintext).await {
                     println!(
@@ -85,7 +86,7 @@ async fn client() -> Result<(), std::io::Error> {
 #[tokio::main]
 async fn main() {
     let server = spawn(server());
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    delay_for(Duration::from_secs(1)).await;
     let client = spawn(client());
 
     server.await.unwrap().unwrap();
