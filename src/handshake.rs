@@ -329,13 +329,12 @@ impl OssuaryConnection {
     /// Returns the number of bytes written into `buf`, or an error.  You must
     /// handle [`OssuaryError::WouldBlock`], which is a recoverable error, but
     /// indicates that some bytes were written to the buffer.
-    pub fn send_handshake<T, U>(&mut self, mut buf: T) -> Result<usize, OssuaryError>
+    pub async fn send_handshake<T>(&mut self, mut buf: T) -> Result<usize, OssuaryError>
     where
-        T: std::ops::DerefMut<Target = U>,
-        U: std::io::Write,
+        T: futures::io::AsyncWrite + Unpin,
     {
         // Try to send any unsent buffered data
-        match write_stored_packet(self, buf.deref_mut()) {
+        match write_stored_packet(self, &mut buf).await {
             Ok(w) if w == 0 => {}
             Ok(w) => return Err(OssuaryError::WouldBlock(w)),
             Err(e) => return Err(e),
@@ -359,15 +358,15 @@ impl OssuaryConnection {
                 Ok((0, self.state.clone()))
             }
             // Handshake transmission states
-            ConnectionState::ClientSendHandshake => self.send_client_handshake(buf),
-            ConnectionState::ServerSendHandshake => self.send_server_handshake(buf),
-            ConnectionState::ClientSendAuthentication => self.send_client_authentication(buf),
+            ConnectionState::ClientSendHandshake => self.send_client_handshake(buf).await,
+            ConnectionState::ServerSendHandshake => self.send_server_handshake(buf).await,
+            ConnectionState::ClientSendAuthentication => self.send_client_authentication(buf).await,
             // Error states
             ConnectionState::Failing(ref e) => {
                 let e = e.clone(); // cure borrow-checker woes
-                self.send_disconnect(e, buf)
+                self.send_disconnect(e, buf).await
             }
-            ConnectionState::Resetting(initial) => self.send_reset(initial, buf),
+            ConnectionState::Resetting(initial) => self.send_reset(initial, buf).await,
         };
 
         match result {
@@ -383,23 +382,17 @@ impl OssuaryConnection {
     }
 
     /// Ready to send a reset packet
-    fn send_reset<T, U>(
+    async fn send_reset<T>(
         &mut self,
         initial: bool,
-        mut buf: T,
+        buf: T,
     ) -> Result<(usize, ConnectionState), OssuaryError>
     where
-        T: std::ops::DerefMut<Target = U>,
-        U: std::io::Write,
+        T: futures::io::AsyncWrite + Unpin,
     {
         // Tell remote host to reset
         let pkt: ResetPacket = Default::default();
-        let w = write_packet(
-            self,
-            buf.deref_mut(),
-            struct_as_slice(&pkt),
-            PacketType::Reset,
-        )?;
+        let w = write_packet(self, buf, struct_as_slice(&pkt), PacketType::Reset).await?;
         self.local_msg_id = 0;
         let state = match initial {
             true => ConnectionState::ResetWait,
@@ -409,59 +402,52 @@ impl OssuaryConnection {
     }
 
     /// Ready to send a disconnect packet
-    async fn send_disconnect<T, U>(
+    async fn send_disconnect<T>(
         &mut self,
         e: OssuaryError,
-        mut buf: T,
+        buf: T,
     ) -> Result<(usize, ConnectionState), OssuaryError>
     where
-        T: std::ops::DerefMut<Target = U>,
-        U: futures::io::AsyncWrite,
+        T: futures::io::AsyncWrite + Unpin,
     {
         // Tell remote host to disconnect
         let pkt: ResetPacket = match e {
             OssuaryError::ConnectionClosed => ResetPacket::closed(),
             _ => Default::default(),
         };
-        let w = write_packet(
-            self,
-            buf.deref_mut(),
-            struct_as_slice(&pkt),
-            PacketType::Disconnect,
-        )?;
+        let w = write_packet(self, buf, struct_as_slice(&pkt), PacketType::Disconnect).await?;
         Ok((w, ConnectionState::Failed(e)))
     }
 
     /// Ready to send a client handshake packet
-    fn send_client_handshake<T, U>(
+    async fn send_client_handshake<T>(
         &mut self,
-        mut buf: T,
+        buf: T,
     ) -> Result<(usize, ConnectionState), OssuaryError>
     where
-        T: std::ops::DerefMut<Target = U>,
-        U: std::io::Write,
+        T: futures::io::AsyncWrite + Unpin,
     {
         // Send session public key and nonce to initiate connection
         let chal = self.local_auth.challenge.unwrap_or([0u8; CHALLENGE_LEN]);
         let pkt = ClientHandshakePacket::new(&self.local_key.public, &self.local_key.nonce, &chal);
         let w = write_packet(
             self,
-            buf.deref_mut(),
+            buf,
             struct_as_slice(&pkt),
             PacketType::ClientHandshake,
-        )?;
+        )
+        .await?;
         let state = ConnectionState::ClientWaitHandshake(std::time::SystemTime::now());
         Ok((w, state))
     }
 
     /// Ready to send a server handshake packet
-    fn send_server_handshake<T, U>(
+    async fn send_server_handshake<T>(
         &mut self,
-        mut buf: T,
+        buf: T,
     ) -> Result<(usize, ConnectionState), OssuaryError>
     where
-        T: std::ops::DerefMut<Target = U>,
-        U: std::io::Write,
+        T: futures::io::AsyncWrite + Unpin,
     {
         let sig = self.sign_remote_challenge();
         // Get session encryption key, which must be known by now.
@@ -483,23 +469,23 @@ impl OssuaryConnection {
         )?;
         let w = write_packet(
             self,
-            buf.deref_mut(),
+            buf,
             struct_as_slice(&pkt),
             PacketType::ServerHandshake,
-        )?;
+        )
+        .await?;
         increment_nonce(&mut self.local_key.nonce);
         let state = ConnectionState::ServerWaitAuthentication(std::time::SystemTime::now());
         Ok((w, state))
     }
 
     /// Ready to send a client authentication packet
-    fn send_client_authentication<T, U>(
+    async fn send_client_authentication<T>(
         &mut self,
-        mut buf: T,
+        buf: T,
     ) -> Result<(usize, ConnectionState), OssuaryError>
     where
-        T: std::ops::DerefMut<Target = U>,
-        U: std::io::Write,
+        T: futures::io::AsyncWrite + Unpin,
     {
         let sig = self.sign_remote_challenge();
         // Get session encryption key, which must be known by now.
@@ -518,10 +504,11 @@ impl OssuaryConnection {
         )?;
         let w = write_packet(
             self,
-            buf.deref_mut(),
+            buf,
             struct_as_slice(&pkt),
             PacketType::ClientAuthentication,
-        )?;
+        )
+        .await?;
         increment_nonce(&mut self.local_key.nonce);
         let state = ConnectionState::Encrypted;
         Ok((w, state))
@@ -543,10 +530,9 @@ impl OssuaryConnection {
     /// from the data buffer before it is used again.  You must handle
     /// [`OssuaryError::WouldBlock`], which is a recoverable error, but
     /// indicates that some bytes were also read from the buffer.
-    pub fn recv_handshake<T, U>(&mut self, buf: T) -> Result<usize, OssuaryError>
+    pub async fn recv_handshake<T>(&mut self, buf: T) -> Result<usize, OssuaryError>
     where
-        T: std::ops::DerefMut<Target = U>,
-        U: std::io::Read,
+        T: futures::io::AsyncRead + Unpin,
     {
         match self.state {
             ConnectionState::Failed(_) | ConnectionState::Encrypted => return Ok(0),
@@ -562,7 +548,7 @@ impl OssuaryConnection {
             _ => {}
         }
 
-        let (pkt, bytes_read) = match read_packet(self, buf) {
+        let (pkt, bytes_read) = match read_packet(self, buf).await {
             Ok(t) => t,
             Err(e @ OssuaryError::WouldBlock(_)) => {
                 return Err(e);

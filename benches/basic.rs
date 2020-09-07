@@ -7,20 +7,32 @@
 // sockets.
 //
 #![feature(test)]
+
 extern crate test;
-use std::net::{TcpListener, TcpStream};
-use std::thread;
+
 use test::Bencher;
 
-use ossuary::OssuaryError;
-use ossuary::{ConnectionType, OssuaryConnection};
-//use crate::*;
+use ossuary_async::OssuaryError;
+use ossuary_async::{ConnectionType, OssuaryConnection};
 
-#[bench]
-fn bench_test(b: &mut Bencher) {
-    let server_thread = thread::spawn(move || {
-        let listener = TcpListener::bind("127.0.0.1:9987").unwrap();
-        let mut server_stream = listener.incoming().next().unwrap().unwrap();
+use tokio::{
+    io::BufWriter,
+    net::{TcpListener, TcpStream},
+    spawn,
+    time::{delay_for, Duration},
+};
+
+use tokio_util::compat::{Tokio02AsyncReadCompatExt, Tokio02AsyncWriteCompatExt};
+
+use futures::executor::block_on;
+
+#[tokio::main]
+async fn aux(b: &mut Bencher) {
+    let server = spawn(async {
+        let mut listener = TcpListener::bind("127.0.0.1:9987").await.unwrap();
+
+        let (server_stream, _) = listener.accept().await.unwrap();
+        let mut server_stream = server_stream.compat();
         let auth_secret_key = &[
             0x50, 0x29, 0x04, 0x97, 0x62, 0xbd, 0xa6, 0x07, 0x71, 0xca, 0x29, 0x14, 0xe3, 0x83,
             0x19, 0x0e, 0xa0, 0x9e, 0xd4, 0xb7, 0x1a, 0xf9, 0xc9, 0x59, 0x3e, 0xa3, 0x1c, 0x85,
@@ -30,9 +42,9 @@ fn bench_test(b: &mut Bencher) {
             OssuaryConnection::new(ConnectionType::UnauthenticatedServer, Some(auth_secret_key))
                 .unwrap();
         while server_conn.handshake_done().unwrap() == false {
-            if server_conn.send_handshake(&mut server_stream).is_ok() {
+            if server_conn.send_handshake(&mut server_stream).await.is_ok() {
                 loop {
-                    match server_conn.recv_handshake(&mut server_stream) {
+                    match server_conn.recv_handshake(&mut server_stream).await {
                         Ok(_) => break,
                         Err(OssuaryError::WouldBlock(_)) => {}
                         _ => panic!("Handshake failed"),
@@ -46,7 +58,10 @@ fn bench_test(b: &mut Bencher) {
         let start = std::time::SystemTime::now();
         loop {
             //std::thread::sleep(std::time::Duration::from_millis(100));
-            match server_conn.recv_data(&mut server_stream, &mut plaintext) {
+            match server_conn
+                .recv_data(&mut server_stream, &mut plaintext)
+                .await
+            {
                 Ok((read, _written)) => bytes += read as u64,
                 Err(OssuaryError::WouldBlock(_)) => continue,
                 Err(e) => {
@@ -71,9 +86,9 @@ fn bench_test(b: &mut Bencher) {
         }
     });
 
-    std::thread::sleep(std::time::Duration::from_millis(500));
-    let mut client_stream = TcpStream::connect("127.0.0.1:9987").unwrap();
-    client_stream.set_nonblocking(true).unwrap();
+    delay_for(Duration::from_secs(1)).await;
+
+    let mut client_stream = TcpStream::connect("127.0.0.1:9987").await.unwrap().compat();
     let mut client_conn = OssuaryConnection::new(ConnectionType::Client, None).unwrap();
     let auth_public_key = &[
         0x20, 0x88, 0x55, 0x8e, 0xbd, 0x9b, 0x46, 0x1d, 0xd0, 0x9d, 0xf0, 0x00, 0xda, 0xf4, 0x0f,
@@ -83,9 +98,9 @@ fn bench_test(b: &mut Bencher) {
     let keys: Vec<&[u8]> = vec![auth_public_key];
     let _ = client_conn.add_authorized_keys(keys).unwrap();
     while client_conn.handshake_done().unwrap() == false {
-        if client_conn.send_handshake(&mut client_stream).is_ok() {
+        if client_conn.send_handshake(&mut client_stream).await.is_ok() {
             loop {
-                match client_conn.recv_handshake(&mut client_stream) {
+                match client_conn.recv_handshake(&mut client_stream).await {
                     Ok(_) => break,
                     Err(OssuaryError::WouldBlock(_)) => {}
                     Err(e) => {
@@ -97,12 +112,12 @@ fn bench_test(b: &mut Bencher) {
         }
     }
     println!("client handshook");
-    let mut client_stream = std::io::BufWriter::new(client_stream);
+    let mut client_stream = BufWriter::new(client_stream.into_inner()).compat_write();
     let mut bytes: u64 = 0;
     let start = std::time::SystemTime::now();
     let mut plaintext: &[u8] = &[0xaa; 16384];
     b.iter(
-        || match client_conn.send_data(&mut plaintext, &mut client_stream) {
+        || match block_on(client_conn.send_data(&mut plaintext, &mut client_stream)) {
             Ok(b) => bytes += b as u64,
             Err(OssuaryError::WouldBlock(_)) => {}
             _ => panic!("send error"),
@@ -119,7 +134,10 @@ fn bench_test(b: &mut Bencher) {
     }
     let mut plaintext: &[u8] = &[0xde, 0xde, 0xbe, 0xbe];
     loop {
-        match client_conn.send_data(&mut plaintext, &mut client_stream) {
+        match client_conn
+            .send_data(&mut plaintext, &mut client_stream)
+            .await
+        {
             Ok(w) => {
                 println!("wrote finish: {}", w);
                 break;
@@ -129,22 +147,16 @@ fn bench_test(b: &mut Bencher) {
         }
     }
 
-    while let Ok(w) = client_conn.flush(&mut client_stream) {
+    while let Ok(w) = client_conn.flush(&mut client_stream).await {
         if w == 0 {
             break;
         }
     }
 
-    // Unwrap stream until it succeeds to force it to flush.
-    let mut client_stream: Option<std::io::BufWriter<_>> = Some(client_stream);
-    while let Some(s) = client_stream {
-        client_stream = match s.into_inner() {
-            Err(e) => match e.error().kind() {
-                std::io::ErrorKind::WouldBlock => Some(e.into_inner()),
-                _ => None,
-            },
-            _ => None,
-        }
-    }
-    let _ = server_thread.join();
+    server.await.unwrap();
+}
+
+#[bench]
+fn bench_test(b: &mut Bencher) {
+    aux(b);
 }

@@ -26,13 +26,12 @@ use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce}; // Or `XChaCha20Poly1305`
 ///
 /// On success, returns a NetworkPacket struct containing the header and data,
 /// and a `usize` indicating how many bytes were consumed from the input buffer.
-pub(crate) async fn read_packet<T, U>(
+pub(crate) async fn read_packet<T>(
     conn: &mut OssuaryConnection,
     mut stream: T,
 ) -> Result<(NetworkPacket, usize), OssuaryError>
 where
-    T: std::ops::DerefMut<Target = U>,
-    U: futures::io::AsyncRead + Unpin,
+    T: futures::io::AsyncRead + Unpin,
 {
     let header_size = ::std::mem::size_of::<PacketHeader>();
     let bytes_read: usize;
@@ -62,8 +61,8 @@ where
         .to_vec()
         .into_boxed_slice();
     let excess = conn.read_buf_used - header_size - packet_len;
-    conn.read_buf
-        .copy_within(header_size + packet_len..excess, 0);
+    let start = header_size + packet_len;
+    conn.read_buf.copy_within(start..start + excess, 0);
     conn.read_buf_used = excess;
     Ok((
         NetworkPacket {
@@ -82,7 +81,7 @@ where
 /// On success, returns the number of bytes written to the output buffer
 pub(crate) async fn write_stored_packet<T>(
     conn: &mut OssuaryConnection,
-    stream: &mut T,
+    mut stream: T,
 ) -> Result<usize, OssuaryError>
 where
     T: futures::io::AsyncWrite + Unpin,
@@ -99,7 +98,7 @@ where
             Err(e) => {
                 if written > 0 && written < conn.write_buf_used {
                     conn.write_buf
-                        .copy_within(written..conn.write_buf_used - written, 0);
+                        .copy_within(written..written + conn.write_buf_used, 0);
                 }
                 conn.write_buf_used -= written;
                 return Err(e.into());
@@ -119,7 +118,7 @@ where
 /// On success, returns the number of bytes written to the output buffer.
 pub(crate) async fn write_packet<T>(
     conn: &mut OssuaryConnection,
-    stream: &mut T,
+    stream: T,
     data: &[u8],
     kind: PacketType,
 ) -> Result<usize, OssuaryError>
@@ -161,17 +160,16 @@ impl OssuaryConnection {
     /// continue calling `send_data()` with the next data to be sent, or you can
     /// use [`OssuaryConnection::flush()`] to explicitly finish writing the
     /// packet.
-    pub async fn send_data<T, U>(
+    pub async fn send_data<T>(
         &mut self,
         in_buf: &[u8],
         mut out_buf: T,
     ) -> Result<usize, OssuaryError>
     where
-        T: std::ops::DerefMut<Target = U>,
-        U: futures::io::AsyncWrite + Unpin,
+        T: futures::io::AsyncWrite + Unpin,
     {
         // Try to send any unsent buffered data
-        match write_stored_packet(self, out_buf.deref_mut()).await {
+        match write_stored_packet(self, &mut out_buf).await {
             Ok(w) if w == 0 => {}
             Ok(w) => return Err(OssuaryError::WouldBlock(w)),
             Err(e) => return Err(e),
@@ -207,8 +205,7 @@ impl OssuaryConnection {
         let mut buf: Vec<u8> = vec![];
         buf.extend(struct_as_slice(&pkt));
         buf.extend(&ciphertext);
-        let written =
-            write_packet(self, out_buf.deref_mut(), &buf, PacketType::EncryptedData).await?;
+        let written = write_packet(self, out_buf, &buf, PacketType::EncryptedData).await?;
         Ok(written)
     }
 
@@ -226,16 +223,14 @@ impl OssuaryConnection {
     /// You must handle [`OssuaryError::WouldBlock`], which is a recoverable
     /// error, but indicates that some bytes were read from `in_buf`.  This
     /// indicates that an incomplete packet was received.
-    pub async fn recv_data<T, U, R, V>(
+    pub async fn recv_data<T, U>(
         &mut self,
         in_buf: T,
-        mut out_buf: R,
+        out_buf: U,
     ) -> Result<(usize, usize), OssuaryError>
     where
-        T: std::ops::DerefMut<Target = U>,
-        U: futures::io::AsyncRead + Unpin,
-        R: std::ops::DerefMut<Target = V>,
-        V: std::io::Write,
+        T: futures::io::AsyncRead + Unpin,
+        U: std::io::Write,
     {
         let mut bytes_read: usize = 0;
         match self.state {
@@ -269,7 +264,7 @@ impl OssuaryConnection {
                 Ok(self.handle_reset_packet(bytes_read)?)
             }
             PacketType::Disconnect => self.handle_disconnect_packet(&pkt),
-            PacketType::EncryptedData => self.recv_encrypted_data(&pkt, out_buf.deref_mut()),
+            PacketType::EncryptedData => self.recv_encrypted_data(&pkt, out_buf),
             _ => Err(OssuaryError::InvalidPacket(
                 "Received non-encrypted data on encrypted channel.".into(),
             )),
@@ -289,7 +284,7 @@ impl OssuaryConnection {
     fn recv_encrypted_data<T>(
         &mut self,
         pkt: &NetworkPacket,
-        out_buf: &mut T,
+        mut out_buf: T,
     ) -> Result<usize, OssuaryError>
     where
         T: std::io::Write,
@@ -330,11 +325,10 @@ impl OssuaryConnection {
     /// After each call, it is the caller's responsibility to put the written
     /// data onto the network, unless `out_buf` is an object that handles that
     /// implicitly, such as a TcpStream.
-    pub async fn flush<R, V>(&mut self, mut out_buf: R) -> Result<usize, OssuaryError>
+    pub async fn flush<T>(&mut self, out_buf: T) -> Result<usize, OssuaryError>
     where
-        R: std::ops::DerefMut<Target = V>,
-        V: futures::io::AsyncWrite + Unpin,
+        T: futures::io::AsyncWrite + Unpin,
     {
-        write_stored_packet(self, out_buf.deref_mut()).await
+        write_stored_packet(self, out_buf).await
     }
 }

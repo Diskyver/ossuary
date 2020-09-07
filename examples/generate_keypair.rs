@@ -1,7 +1,7 @@
-use ossuary;
+use ossuary_async;
 
 fn main() {
-    let (secret, public) = ossuary::generate_auth_keypair().unwrap();
+    let (secret, public) = ossuary_async::generate_auth_keypair().unwrap();
     print!("let auth_secret_key = &[");
     for (idx, byte) in secret.iter().enumerate() {
         if idx % 8 == 0 {

@@ -1,5 +1,5 @@
-use ossuary::OssuaryError;
-use ossuary::{ConnectionType, OssuaryConnection};
+use ossuary_async::OssuaryError;
+use ossuary_async::{ConnectionType, OssuaryConnection};
 
 const SERVER_SECRET: &[u8] = &[
     0x50, 0x29, 0x04, 0x97, 0x62, 0xbd, 0xa6, 0x07, 0x71, 0xca, 0x29, 0x14, 0xe3, 0x83, 0x19, 0x0e,

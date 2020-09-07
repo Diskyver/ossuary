@@ -9,8 +9,10 @@
 extern crate test;
 use test::Bencher;
 
-use ossuary::OssuaryError;
-use ossuary::{ConnectionType, OssuaryConnection};
+use ossuary_async::OssuaryError;
+use ossuary_async::{ConnectionType, OssuaryConnection};
+
+use futures::executor::block_on;
 
 #[derive(Debug)]
 enum LoopConn {
@@ -75,8 +77,8 @@ fn bench_handshake(b: &mut Bencher) {
                 iters += 1;
                 break;
             }
-            send_conn.send_handshake(&mut send_buf).unwrap();
-            match send_conn.recv_handshake(&mut recv_buf.as_slice()) {
+            block_on(send_conn.send_handshake(&mut send_buf)).unwrap();
+            match block_on(send_conn.recv_handshake(&mut recv_buf.as_slice())) {
                 Ok(b) => {
                     recv_buf.drain(0..b);
                 }
