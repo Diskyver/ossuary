@@ -34,14 +34,7 @@ where
     T: futures::io::AsyncRead + Unpin,
 {
     let header_size = ::std::mem::size_of::<PacketHeader>();
-    let bytes_read: usize;
-    match stream.read(&mut conn.read_buf[conn.read_buf_used..]).await {
-        Ok(b) => bytes_read = b,
-        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-            return Err(OssuaryError::WouldBlock(0))
-        }
-        Err(e) => return Err(e.into()),
-    }
+    let bytes_read =  stream.read(&mut conn.read_buf[conn.read_buf_used..]).await?;
     conn.read_buf_used += bytes_read;
     let buf: &[u8] = &conn.read_buf;
     let hdr = PacketHeader {
@@ -55,7 +48,7 @@ where
         if header_size + packet_len > PACKET_BUF_SIZE {
             return Err(OssuaryError::InvalidPacket("Oversized packet".into()));
         }
-        return Err(OssuaryError::WouldBlock(bytes_read));
+        return Err(OssuaryError::NeedMoreData(bytes_read));
     }
     let buf: Box<[u8]> = (&conn.read_buf[header_size..header_size + packet_len])
         .to_vec()
@@ -169,11 +162,7 @@ impl OssuaryConnection {
         T: futures::io::AsyncWrite + Unpin,
     {
         // Try to send any unsent buffered data
-        match write_stored_packet(self, &mut out_buf).await {
-            Ok(w) if w == 0 => {}
-            Ok(w) => return Err(OssuaryError::WouldBlock(w)),
-            Err(e) => return Err(e),
-        }
+        write_stored_packet(self, &mut out_buf).await?;
         match self.state {
             ConnectionState::Encrypted => {}
             _ => {
@@ -247,9 +236,6 @@ impl OssuaryConnection {
 
         let (pkt, bytes) = match read_packet(self, in_buf).await {
             Ok(t) => t,
-            Err(e @ OssuaryError::WouldBlock(_)) => {
-                return Err(e);
-            }
             Err(e) => {
                 self.reset_state(Some(e.clone()));
                 return Err(e);

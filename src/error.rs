@@ -32,27 +32,7 @@ pub enum OssuaryError {
     /// [`std::net::TcpStream`]
     Io(String),
 
-    /// A buffer cannot complete a read/write without blocking.
-    ///
-    /// Ossuary is inherently a non-blocking library, and returns this error any
-    /// time it is unable to read or write more data.
-    ///
-    /// When using a buffer configured for non-blocking operation, such as a
-    /// [`std::net::TcpStream`], any non-blocking errors
-    /// ([`std::io::ErrorKind::WouldBlock`]) encounted by the buffer are raised
-    /// as this error.
-    ///
-    /// The error has a paired parameter indicating whether any data WAS read
-    /// or written (depending on the function called).  This can be non-zero
-    /// on operations that require multiple consecutive read/write operations
-    /// to the buffer if some but not all operations succeeded.
-    ///
-    /// When using an input or output buffer in a manner that requires manually
-    /// sending or clearing data from the buffer, such as when passing the data
-    /// from Ossuary through an in-memory buffer prior to handing it to a TCP
-    /// connection, the amount of bytes indicated by the paired parameter should
-    /// be processed immediately.
-    WouldBlock(usize), // bytes consumed
+    NeedMoreData(usize), // bytes consumed
 
     /// Connection accepted by an unknown/untrusted server.
     ///
@@ -171,7 +151,7 @@ impl std::fmt::Debug for OssuaryError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             OssuaryError::Io(e) => write!(f, "OssuaryError::Io {}", e),
-            OssuaryError::WouldBlock(_) => write!(f, "OssuaryError::WouldBlock"),
+            OssuaryError::NeedMoreData(_) => write!(f, "OssuaryError::NeedMoreData"),
             OssuaryError::Unpack(_) => write!(f, "OssuaryError::Unpack"),
             OssuaryError::NoRandomSource => write!(f, "OssuaryError::NoRandomSource"),
             OssuaryError::KeySize(_, _) => write!(f, "OssuaryError::KeySize"),
@@ -192,10 +172,7 @@ impl std::fmt::Debug for OssuaryError {
 }
 impl From<std::io::Error> for OssuaryError {
     fn from(error: std::io::Error) -> Self {
-        match error.kind() {
-            std::io::ErrorKind::WouldBlock => OssuaryError::WouldBlock(0),
-            _ => OssuaryError::Io(error.to_string()),
-        }
+        OssuaryError::Io(error.to_string())
     }
 }
 impl From<core::array::TryFromSliceError> for OssuaryError {

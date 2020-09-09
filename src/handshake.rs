@@ -335,8 +335,7 @@ impl OssuaryConnection {
     {
         // Try to send any unsent buffered data
         match write_stored_packet(self, &mut buf).await {
-            Ok(w) if w == 0 => {}
-            Ok(w) => return Err(OssuaryError::WouldBlock(w)),
+            Ok(_) => {}
             Err(e) => return Err(e),
         }
 
@@ -550,9 +549,6 @@ impl OssuaryConnection {
 
         let (pkt, bytes_read) = match read_packet(self, buf).await {
             Ok(t) => t,
-            Err(e @ OssuaryError::WouldBlock(_)) => {
-                return Err(e);
-            }
             Err(e) => {
                 self.reset_state(Some(e.clone()));
                 return Err(e);
