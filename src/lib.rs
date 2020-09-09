@@ -237,16 +237,15 @@
 //
 
 pub mod clib;
-mod connection;
-mod handshake;
 mod comm;
+mod connection;
 mod error;
+mod handshake;
 
 pub use error::OssuaryError;
 
-use chacha20_poly1305_aead::{encrypt,decrypt};
+use ed25519_dalek::{ExpandedSecretKey, Keypair, PublicKey, SecretKey};
 use x25519_dalek::{EphemeralSecret, PublicKey as EphemeralPublic, SharedSecret};
-use ed25519_dalek::{Signature, Keypair, SecretKey, ExpandedSecretKey, PublicKey};
 
 use rand::rngs::OsRng;
 
@@ -264,7 +263,7 @@ const CHALLENGE_LEN: usize = 32;
 const SIGNATURE_LEN: usize = 64;
 const KEY_LEN: usize = 32;
 const NONCE_LEN: usize = 12;
-const TAG_LEN: usize = 16;   // chacha20 tag
+const TAG_LEN: usize = 16; // chacha20 tag
 
 // Internal buffer for copy of network data
 const PACKET_BUF_SIZE: usize = 16384
@@ -341,16 +340,14 @@ impl PacketType {
 }
 
 /// Header prepended to the front of all encrypted data packets.
-#[repr(C,packed)]
+#[repr(C, packed)]
 struct EncryptedPacket {
     /// Length of the data (not including this header or HMAC tag)
     data_len: u16,
-    /// Length of HMAC tag following the data
-    tag_len: u16,
 }
 
 /// Header prepended to the front of all packets, regardless of encryption.
-#[repr(C,packed)]
+#[repr(C, packed)]
 struct PacketHeader {
     /// Length of packet (not including this header)
     len: u16,
@@ -529,12 +526,12 @@ pub enum ConnectionType {
 pub struct OssuaryConnection {
     state: ConnectionState,
     conn_type: ConnectionType,
-    local_key: SessionKeyMaterial, // session key
+    local_key: SessionKeyMaterial,          // session key
     remote_key: Option<SessionKeyMaterial>, // session key
     local_msg_id: u16,
     remote_msg_id: u16,
     authorized_keys: Vec<[u8; 32]>,
-     //a TODO: secret key should be stored in a single spot on the heap and
+    //a TODO: secret key should be stored in a single spot on the heap and
     // cleared after use.  Perhaps use clear_on_drop crate.
     local_auth: AuthKeyMaterial,
     remote_auth: AuthKeyMaterial,
@@ -553,7 +550,7 @@ impl Default for OssuaryConnection {
             remote_key: None,
             local_msg_id: 0u16,
             remote_msg_id: 0u16,
-            authorized_keys: vec!(),
+            authorized_keys: vec![],
             local_auth: Default::default(),
             remote_auth: Default::default(),
             read_buf: [0u8; PACKET_BUF_SIZE],
@@ -566,15 +563,15 @@ impl Default for OssuaryConnection {
 }
 
 /// Generate secret/public Ed25519 keypair for host authentication
-pub fn generate_auth_keypair() -> Result<([u8; KEY_LEN],[u8; KEY_LEN]), OssuaryError> {
-    let mut rng = OsRng::new()?;
+pub fn generate_auth_keypair() -> Result<([u8; KEY_LEN], [u8; KEY_LEN]), OssuaryError> {
+    let mut rng = OsRng {};
     let keypair: Keypair = Keypair::generate(&mut rng);
     Ok((keypair.secret.to_bytes(), keypair.public.to_bytes()))
 }
 
 fn increment_nonce(nonce: &mut [u8]) -> bool {
     let wrapped = nonce.iter_mut().rev().fold(1, |acc, x| {
-        let (val,carry) = x.overflowing_add(acc);
+        let (val, carry) = x.overflowing_add(acc);
         *x = val;
         carry as u8
     });
@@ -583,7 +580,7 @@ fn increment_nonce(nonce: &mut [u8]) -> bool {
 
 /// Cast the data bytes in a NetworkPacket into a struct
 #[inline(always)]
-fn interpret_packet<'a, T>(pkt: &'a NetworkPacket) -> Result<&'a T, OssuaryError> {
+fn interpret_packet<T>(pkt: &NetworkPacket) -> Result<&T, OssuaryError> {
     let s: &T = slice_as_struct(&pkt.data)?;
     Ok(s)
 }
@@ -591,8 +588,7 @@ fn interpret_packet<'a, T>(pkt: &'a NetworkPacket) -> Result<&'a T, OssuaryError
 /// Cast the data bytes in a NetworkPacket into a struct, and also return the
 /// remaining unused bytes if the data is larger than the struct.
 #[inline(always)]
-fn interpret_packet_extra<'a, T>(pkt: &'a NetworkPacket)
-                                 -> Result<(&'a T, &'a [u8]), OssuaryError> {
+fn interpret_packet_extra<T>(pkt: &NetworkPacket) -> Result<(&T, &[u8]), OssuaryError> {
     let s: &T = slice_as_struct(&pkt.data)?;
     Ok((s, &pkt.data[::std::mem::size_of::<T>()..]))
 }
@@ -600,10 +596,7 @@ fn interpret_packet_extra<'a, T>(pkt: &'a NetworkPacket)
 #[inline(always)]
 fn struct_as_slice<T: Sized>(p: &T) -> &[u8] {
     unsafe {
-        ::std::slice::from_raw_parts(
-            (p as *const T) as *const u8,
-            ::std::mem::size_of::<T>(),
-        )
+        ::std::slice::from_raw_parts((p as *const T) as *const u8, ::std::mem::size_of::<T>())
     }
 }
 #[inline(always)]
@@ -625,30 +618,31 @@ mod tests {
         let mut conn = OssuaryConnection::new(ConnectionType::AuthenticatedServer, None).unwrap();
 
         // Vec of slices
-        let keys: Vec<&[u8]> = vec![
-            &[0xbe, 0x1c, 0xa0, 0x74, 0xf4, 0xa5, 0x8b, 0xbb,
-              0xd2, 0x62, 0xa7, 0xf9, 0x52, 0x3b, 0x6f, 0xb0,
-              0xbb, 0x9e, 0x86, 0x62, 0x28, 0x7c, 0x33, 0x89,
-              0xa2, 0xe1, 0x63, 0xdc, 0x55, 0xde, 0x28, 0x1f]
-        ];
+        let keys: Vec<&[u8]> = vec![&[
+            0xbe, 0x1c, 0xa0, 0x74, 0xf4, 0xa5, 0x8b, 0xbb, 0xd2, 0x62, 0xa7, 0xf9, 0x52, 0x3b,
+            0x6f, 0xb0, 0xbb, 0x9e, 0x86, 0x62, 0x28, 0x7c, 0x33, 0x89, 0xa2, 0xe1, 0x63, 0xdc,
+            0x55, 0xde, 0x28, 0x1f,
+        ]];
         let _ = conn.add_authorized_keys(keys).unwrap();
 
         // Vec of owned arrays
-        let keys: Vec<[u8; 32]> = vec![
-            [0xbe, 0x1c, 0xa0, 0x74, 0xf4, 0xa5, 0x8b, 0xbb,
-             0xd2, 0x62, 0xa7, 0xf9, 0x52, 0x3b, 0x6f, 0xb0,
-             0xbb, 0x9e, 0x86, 0x62, 0x28, 0x7c, 0x33, 0x89,
-             0xa2, 0xe1, 0x63, 0xdc, 0x55, 0xde, 0x28, 0x1f]
-        ];
-        let _ = conn.add_authorized_keys(keys.iter().map(|x| x.as_ref()).collect::<Vec<&[u8]>>()).unwrap();
+        let keys: Vec<[u8; 32]> = vec![[
+            0xbe, 0x1c, 0xa0, 0x74, 0xf4, 0xa5, 0x8b, 0xbb, 0xd2, 0x62, 0xa7, 0xf9, 0x52, 0x3b,
+            0x6f, 0xb0, 0xbb, 0x9e, 0x86, 0x62, 0x28, 0x7c, 0x33, 0x89, 0xa2, 0xe1, 0x63, 0xdc,
+            0x55, 0xde, 0x28, 0x1f,
+        ]];
+        let _ = conn
+            .add_authorized_keys(keys.iter().map(|x| x.as_ref()).collect::<Vec<&[u8]>>())
+            .unwrap();
 
         // Vec of vecs
-        let keys: Vec<Vec<u8>> = vec![
-            vec![0xbe, 0x1c, 0xa0, 0x74, 0xf4, 0xa5, 0x8b, 0xbb,
-                 0xd2, 0x62, 0xa7, 0xf9, 0x52, 0x3b, 0x6f, 0xb0,
-                 0xbb, 0x9e, 0x86, 0x62, 0x28, 0x7c, 0x33, 0x89,
-                 0xa2, 0xe1, 0x63, 0xdc, 0x55, 0xde, 0x28, 0x1f]
-        ];
-        let _ = conn.add_authorized_keys(keys.iter().map(|x| x.as_slice())).unwrap();
+        let keys: Vec<Vec<u8>> = vec![vec![
+            0xbe, 0x1c, 0xa0, 0x74, 0xf4, 0xa5, 0x8b, 0xbb, 0xd2, 0x62, 0xa7, 0xf9, 0x52, 0x3b,
+            0x6f, 0xb0, 0xbb, 0x9e, 0x86, 0x62, 0x28, 0x7c, 0x33, 0x89, 0xa2, 0xe1, 0x63, 0xdc,
+            0x55, 0xde, 0x28, 0x1f,
+        ]];
+        let _ = conn
+            .add_authorized_keys(keys.iter().map(|x| x.as_slice()))
+            .unwrap();
     }
 }

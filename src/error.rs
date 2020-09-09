@@ -174,7 +174,7 @@ impl std::fmt::Debug for OssuaryError {
             OssuaryError::WouldBlock(_) => write!(f, "OssuaryError::WouldBlock"),
             OssuaryError::Unpack(_) => write!(f, "OssuaryError::Unpack"),
             OssuaryError::NoRandomSource => write!(f, "OssuaryError::NoRandomSource"),
-            OssuaryError::KeySize(_,_) => write!(f, "OssuaryError::KeySize"),
+            OssuaryError::KeySize(_, _) => write!(f, "OssuaryError::KeySize"),
             OssuaryError::InvalidKey => write!(f, "OssuaryError::InvalidKey"),
             OssuaryError::InvalidPacket(m) => write!(f, "OssuaryError::InvalidPacket: {}", m),
             OssuaryError::InvalidStruct => write!(f, "OssuaryError::InvalidStruct"),
@@ -184,7 +184,9 @@ impl std::fmt::Debug for OssuaryError {
             OssuaryError::ConnectionClosed => write!(f, "OssuaryError::ConnectionClosed"),
             OssuaryError::UntrustedServer(_) => write!(f, "OssuaryError::UntrustedServer"),
             OssuaryError::DecryptionFailed => write!(f, "OssuaryError::DecryptionFailed"),
-            OssuaryError::WrongProtocolVersion(r,l) => write!(f, "OssuaryError:WrongProtocolVersion {} != {}", r, l),
+            OssuaryError::WrongProtocolVersion(r, l) => {
+                write!(f, "OssuaryError:WrongProtocolVersion {} != {}", r, l)
+            }
         }
     }
 }
@@ -206,8 +208,8 @@ impl From<ed25519_dalek::SignatureError> for OssuaryError {
         OssuaryError::InvalidSignature
     }
 }
-impl From<chacha20_poly1305_aead::DecryptError> for OssuaryError {
-    fn from(_error: chacha20_poly1305_aead::DecryptError) -> Self {
+impl From<chacha20poly1305::aead::Error> for OssuaryError {
+    fn from(_error: chacha20poly1305::aead::Error) -> Self {
         OssuaryError::DecryptionFailed
     }
 }

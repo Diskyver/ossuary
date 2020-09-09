@@ -14,12 +14,12 @@
 //
 use crate::*;
 
-use rand::RngCore;
 use rand::rngs::OsRng;
+use rand::RngCore;
 
 impl OssuaryConnection {
     fn generate_session_material() -> Result<SessionKeyMaterial, OssuaryError> {
-        let mut rng = OsRng::new().expect("RNG not available.");
+        let mut rng = OsRng {};
         let sec_key = EphemeralSecret::new(&mut rng);
         let pub_key = EphemeralPublic::from(&sec_key);
         let mut nonce: [u8; NONCE_LEN] = [0; NONCE_LEN];
@@ -28,7 +28,7 @@ impl OssuaryConnection {
         Ok(SessionKeyMaterial {
             secret: Some(sec_key),
             public: *pub_key.as_bytes(),
-            nonce: nonce,
+            nonce,
             session: None,
         })
     }
@@ -43,8 +43,11 @@ impl OssuaryConnection {
     /// be generated for the lifetime of this connection object.  This key
     /// can be changed with [`OssuaryConnection::set_secret_key`].
     ///
-    pub fn new(conn_type: ConnectionType, auth_secret_key: Option<&[u8]>) -> Result<OssuaryConnection, OssuaryError> {
-        let mut rng = OsRng::new().expect("RNG not available.");
+    pub fn new(
+        conn_type: ConnectionType,
+        auth_secret_key: Option<&[u8]>,
+    ) -> Result<OssuaryConnection, OssuaryError> {
+        let mut rng = OsRng {};
 
         let mut challenge: [u8; CHALLENGE_LEN] = [0; CHALLENGE_LEN];
         rng.fill_bytes(&mut challenge);
@@ -74,7 +77,7 @@ impl OssuaryConnection {
                         (Some(secret), Some(public))
                     }
                 }
-            },
+            }
         };
         let auth = AuthKeyMaterial {
             challenge: Some(challenge),
@@ -87,7 +90,7 @@ impl OssuaryConnection {
                 ConnectionType::Client => ConnectionState::ClientSendHandshake,
                 _ => ConnectionState::ServerWaitHandshake(std::time::SystemTime::now()),
             },
-            conn_type: conn_type,
+            conn_type,
             local_key: key,
             local_auth: auth,
             ..Default::default()
@@ -162,10 +165,7 @@ impl OssuaryConnection {
     }
     /// Whether this context represents a server (as opposed to a client).
     pub fn is_server(&self) -> bool {
-        match self.conn_type {
-            ConnectionType::Client => false,
-            _ => true,
-        }
+        !matches!(self.conn_type, ConnectionType::Client)
     }
     /// Add key received from a remote connection and generate session key
     pub(crate) fn add_remote_key(&mut self, public: &[u8; 32], nonce: &[u8; 12]) {
@@ -207,19 +207,14 @@ impl OssuaryConnection {
         self.authorized_keys.push(key_owned);
 
         // If handshake is waiting for key approval, check if this is the key.
-        match self.state {
-            ConnectionState::ClientWaitServerApproval => {
-                match self.remote_auth.public_key {
-                    Some(remote_key) => {
-                        if remote_key.as_bytes() == key {
-                            self.state = ConnectionState::ClientSendAuthentication
-                        }
-                    },
-                    _ => {},
+        if let ConnectionState::ClientWaitServerApproval = self.state {
+            if let Some(remote_key) = self.remote_auth.public_key {
+                if remote_key.as_bytes() == key {
+                    self.state = ConnectionState::ClientSendAuthentication
                 }
-            },
-            _ => {},
-        };
+            }
+        }
+
         Ok(())
     }
 
@@ -230,8 +225,10 @@ impl OssuaryConnection {
     ///
     /// See [`OssuaryConnection::add_authorized_key`] for documentation.
     ///
-    pub fn add_authorized_keys<'a,T>(&mut self, keys: T) -> Result<usize, OssuaryError>
-    where T: std::iter::IntoIterator<Item = &'a [u8]> {
+    pub fn add_authorized_keys<'a, T>(&mut self, keys: T) -> Result<usize, OssuaryError>
+    where
+        T: std::iter::IntoIterator<Item = &'a [u8]>,
+    {
         let mut count: usize = 0;
         for key in keys {
             let _ = self.add_authorized_key(key)?;
@@ -292,16 +289,13 @@ impl OssuaryConnection {
     pub(crate) fn next_msg_id(&mut self, pkt: &NetworkPacket) -> Result<u16, OssuaryError> {
         if pkt.header.msg_id != self.remote_msg_id {
             match pkt.kind() {
-                PacketType::Disconnect |
-                PacketType::Reset => {},
-                _ => {
-                    match self.state {
-                        ConnectionState::ResetWait => {},
-                        _ => {
-                            dbg!("Message gap detected.  Restarting connection.");
-                            self.reset_state(None);
-                            return Err(OssuaryError::InvalidPacket("Message ID does not match".into()));
-                        },
+                PacketType::Disconnect | PacketType::Reset => {}
+                _ => match self.state {
+                    ConnectionState::ResetWait => {}
+                    _ => {
+                        dbg!("Message gap detected.  Restarting connection.");
+                        self.reset_state(None);
+                        return Err(OssuaryError::InvalidPacket("Message ID does not match"));
                     }
                 },
             }

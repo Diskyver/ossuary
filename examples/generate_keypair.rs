@@ -1,9 +1,7 @@
-use ossuary;
-
 fn main() {
     let (secret, public) = ossuary::generate_auth_keypair().unwrap();
     print!("let auth_secret_key = &[");
-    for (idx,byte) in secret.iter().enumerate() {
+    for (idx, byte) in secret.iter().enumerate() {
         if idx % 8 == 0 {
             print!("\n    ");
         }
@@ -11,7 +9,7 @@ fn main() {
     }
     println!("\n];");
     print!("let auth_public_key = &[");
-    for (idx,byte) in public.iter().enumerate() {
+    for (idx, byte) in public.iter().enumerate() {
         if idx % 8 == 0 {
             print!("\n    ");
         }
